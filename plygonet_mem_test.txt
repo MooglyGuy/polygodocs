@@ -1,0 +1,966 @@
+void func_5d()
+{	// 05D: move #>$FFC4,R0
+	// 05F: nop
+	u16 R0 = 0xFFC4;
+	
+	// 060: bfset #$8,X:(R0)
+	HCR |= HF2;
+	
+	// 062: move #>$73,R1
+	// 064: move #>$7000,R3
+	// 066: move #>$D,Y0
+	u16 R1 = 0x0073;
+	u16 R3 = 0x7000;
+	u16 Y0 = 0x000D;
+	
+	// 0068: do Y0,*+$4
+	for (u16 lc = Y0; lc > 0; lc--)
+	{	// 06A: move P:(R1)+,X0
+		// 06B: move X0,X:(R3)+
+		mem[R3++] = pmem[R1++];
+	}
+
+	// 06C: move #>$C000,R1
+	// 06E: move #>$0,R3
+	// 070: move X:(R1)+,X0
+	R1 = 0xC000;
+	u16 X0 = mem[R1++];
+	R3 = 0;
+	
+	// 071: jmp >$7000
+	func_7000_1(X0);
+}
+
+void func_7000_1(u16 X0)
+{	// 7000: do X0,*+$4
+	for (u16 lc = X0; lc > 0; lc--)
+	{	// 7002: move X:(R1)+,X0
+		// 7003: move X0,P:(R3)+
+		pmem[R3++] = mem[R1++];
+	}
+
+	// 7004: move X:(R1)+,X0
+	// 7005: move #>$8000,R3
+	X0 = mem[R1++];
+	u16 R3 = 0x8000;
+
+	// 7007: do X0,*+$4
+	for (u16 lc = X0; lc > 0; lc--)
+	{	// 7009: move X:(R1)+,X0
+		// 700A: move X0,P:(R3)+
+	}
+}
+
+void test_bankA_basic()
+{
+	// 102: bsr >*+$26
+	// 104: bsr >*+$2C
+	clear_responses();
+	test_uninverted_data_bankA_0xC000_0xDFFF();
+
+	// 106: move X:>$0,X0
+	// 108: move X0,X:>$FFE5
+	HTX = 0;
+}
+
+void test_bankA_68k_comms()
+{
+	// 10B: bsr >*+$1D
+	// 10D: bsr >*+$1E2
+	// 10F: bsr >*+$2A
+	clear_responses();
+	verify_uninverted_mul_data_0xC000_0xDFFF();
+	test_inverted_data_bankA_0xC000_0xDFFF();
+
+	// 111: move X:>$0,X0
+	// 113: move X0,X:>$FFE5
+	HTX = 0;
+}
+
+void test_bankB()
+{	// 116: bsr >*+$12
+	// 118: bsr >*+$1FA
+	// 11A: bsr >*+$28
+	clear_responses();
+	verify_inverted_mul_data_0xC000_0xDFFF();
+	test_bankB();
+	
+	// 11C: move #>$FFE4,R0
+	// 11E: move #>$0,R1
+	u16 R0 = 0xFFE4;
+	u16 R1 = 0;
+	
+	// 120: do #<$3,*+$7
+	for (u16 lc = 3; lc > 0; lc--)
+	{	// 122: nop
+		// 123: bftstl #$2,X:(R0)
+		// 125: bcs <*-$2
+		while (!(HSR & 2));
+		HTX = mem[R1++];
+	}
+}
+
+void clear_responses()
+{	// 128: move #<+$0,X0
+	// 129: move X0,X:>$0
+	// 12B: move X0,X:>$1
+	// 12D: move X0,X:>$2
+	// 12F: rts
+	mem[0] = 0;
+	mem[1] = 0;
+	mem[2] = 0;
+}
+
+void test_uninverted_data_bankA_0xC000_0xDFFF()
+{	// 130: move #>$FFF0,A
+	// 132: bsr >*+$124
+	// 134: move #>$FFF0,A
+	// 136: bsr >*+$127
+	
+	u16 A = 0xFFF0;
+	write_uninverted_data_bankA_0xC000_0xDFFF();
+	A = 0xFFF0;
+	verify_uninverted_data_bankA_0xC000_0xDFFF();
+}
+
+void test_inverted_data_bankA_0xC000_0xDFFF()
+{	// 139: move #>$FFF0,A
+	// 13B: bsr >*+$129
+	// 13D: move #>$FFF0,A
+	// 13F: bsr >*+$12C
+	// 141: rts
+	
+	u16 A = 0xFFF0;
+	write_inverted_data_bankA_0xC000_0xDFFF();
+	A = 0xFFF0;
+	verify_inverted_data_bankA_0xC000_0xDFFF();
+}
+
+void test_bankB()
+{	// 142: bsr >*+$C
+	// 144: bsr >*+$2C
+	// 146: bsr >*+$50
+	// 148: bsr >*+$70
+	write_uninverted_bankB();
+	verify_uninverted_bankB();
+	write_inverted_bankB();
+	verify_inverted_bankB();
+	
+	// 14A: move #>$20,X0
+	// 14C: movep X0,X:<<$FFE3
+	PCD = 0x20;
+
+	// 14D: rts
+}
+
+void write_uninverted_bankB()
+{	// 14E: move #>$FFF0,A
+	// 150: move #>$20,X0
+	// 152: movep X0,X:<<$FFE3
+	u16 A = 0xFFF0;
+	PCD = 0x20;
+	
+	// 153: bsr >*+$A7
+	// 155: bsr >*+$C1
+	// 157: bsr >*+$FF
+	write_uninverted_data_bankA_0x0800_0x7FFF();
+	write_uninverted_data_bankA_0x8000_0xBFFF_8banks();
+	write_uninverted_data_bankA_0xC000_0xDFFF();
+	
+	// 159: bfset #$2,X:<<$FFE3
+	PCD |= 0x02;
+	
+	// 15B: do #<$2,*+$12
+	for (u16 i = 2; i > 0; i--)
+	{	// 15D: do #<$2,*+$E
+		for (u16 j = 2; j > 0; j--)
+		{	// 15F: bsr >*+$113
+			// 161: bsr >*+$12D
+			write_uninverted_data_bankB_0x6000_0x6FFF();
+			write_uninverted_data_bankB_0x7000_0x7FFF();
+			
+			// 163: do #<$2,*+$6
+			for (u16 k = 2; k > 0; k--)
+			{	// 165: bsr >*+$145
+				write_uninverted_data_bankB_0x8000_0xFFBF();
+				
+				// 167: bfchg #$1,X:<<$FFE3
+				PCD ^= 0x01;
+			}
+			// 169: bfchg #$100,X:<<$FFE3
+			PCD ^= 0x100;
+		}
+		// 16B: bfchg #$80,X:<<$FFE3
+		PCD ^= 0x80;
+	}
+	
+	// 16D: bsr >*+$71
+	write_uninverted_prog_0x8000_0x87FF();
+	
+	// 16F: rts
+}
+
+void verify_uninverted_bankB()
+{	// 170: move #>$FFF0,A
+	// 172: move #>$20,X0
+	// 174: movep X0,X:<<$FFE3
+	u16 A = 0xFFF0;
+	PCD = 0x20;
+	
+	// 175: bsr >*+$8C
+	// 177: bsr >*+$AF
+	// 179: bsr >*+$E4
+	verify_uninverted_data_bankA_0x0800_0x7FFF();
+	verify_uninverted_data_bankA_0x8000_0xBFFF_8banks();
+	verify_uninverted_data_bankA_0xC000_0xDFFF();
+	
+	// 17B: bfset #$2,X:<<$FFE3
+	PCD |= 0x02;
+
+	// 17D: do #<$2,*+$12
+	for (u16 i = 2; i > 0; i--)
+	{	// 17F: do #<$2,*+$E
+		for (u16 j = 2; j > 0; j--)
+		{	// 181: bsr >*+$F8
+			// 183: bsr >*+$112
+			verify_uninverted_data_bankB_0x6000_0x6FFF();
+			verify_uninverted_data_bankB_0x7000_0x7FFF();
+			
+			// 185: do #<$2,*+$6
+			for (u16 k = 2; k > 0; k--)
+			{	// 187: bsr >*+$12A
+				verify_uninverted_data_bankB_0x8000_0xFFBF();
+				
+				// 189: bfchg #$1,X:<<$FFE3
+				PCD ^= 0x01;
+			}
+			// 18B: bfchg #$100,X:<<$FFE3
+			PCD ^= 0x100;
+		}
+		// 18D: bfchg #$80,X:<<$FFE3
+		PCD ^= 0x80;
+	}
+	
+	// 18F: bsr >*+$56
+	verify_uninverted_prog_0x8000_0x87FF();
+	
+	// 191: move #>$FFF0,A
+	// 193: bsr >*+$133
+	A = 0xFFF0;
+	verify_uninverted_bankB_0x800_0x5FFF();
+	
+	// 195: rts
+}
+
+void write_inverted_bankB()
+{	// 196: move #>$FFF0,A
+	// 198: move #>$20,X0
+	// 19A: movep X0,X:<<$FFE3
+	u16 A = 0xFFF0;
+	PCD = 0x20;
+
+	// 19B: bsr >*+$6D
+	// 19D: bsr >*+$99
+	// 19F: bsr >*+$C5
+	write_inverted_data_bankA_0x0800_0x7FFF();
+	write_inverted_data_bankA_0x8000_0xBFFF_8banks();
+	write_inverted_data_bankA_0xC000_0xDFFF();
+
+	// 1A1: bfset #$2,X:<<$FFE3
+	PCD |= 0x02;
+	
+	// 1A3: do #<$2,*+$12
+	for (u16 i = 2; i > 0; i--)
+	{	// 1A5: do #<$2,*+$E
+		for (u16 j = 2; j > 0; j--)
+		{	// 1A7: bsr >*+$D9
+			// 1A9: bsr >*+$F3
+			write_inverted_data_bankB_0x6000_0x6FFF();
+			write_inverted_data_bankB_0x7000_0x7FFF();
+			
+			// 1AB: do #<$2,*+$6
+			for (u16 k = 2; k > 2; k--)
+			{	// 1AD: bsr >*+$10B
+				write_inverted_data_bankB_0x8000_0xFFBF();
+				
+				// 1AF: bfchg #$1,X:<<$FFE3
+				PCD ^= 0x01;
+			}
+			// 1B1: bfchg #$100,X:<<$FFE3
+			PCD ^= 0x100;
+		}
+		// 1B3: bfchg #$80,X:<<$FFE3
+		PCD ^= 0x80;
+	}
+	
+	// 1B5: bsr >*+$37
+	write_inverted_prog_0x8000_0x87FF();
+	
+	// 1B7: rts
+}
+
+void verify_inverted_bankB()
+{	// 1B8: move #>$FFF0,A
+	// 1BA: move #>$20,X0
+	// 1BC: movep X0,X:<<$FFE3
+	u16 A = 0xFFF0;
+	PCD = 0x20;
+	
+	// 1BD: bsr >*+$52
+	// 1BF: bsr >*+$87
+	// 1C1: bsr >*+$AA
+	verify_inverted_data_bankA_0x0800_0x7FFF();
+	verify_inverted_data_bankA_0x8000_0xBFFF_8banks();
+	verify_inverted_data_bankA_0xC000_0xDFFF();
+	
+	// 1C3: bfset #$2,X:<<$FFE3
+	PCD |= 0x02;
+	
+	// 1C5: do #<$2,*+$12
+	for (u16 i = 2; i > 0; i--)
+	{	// 1C7: do #<$2,*+$E
+		for (u16 j = 2; j > 0; j--)
+		{	// 1C9: bsr >*+$BE
+			// 1CB: bsr >*+$D8
+			verify_inverted_data_bankB_0x6000_0x6FFF();
+			verify_inverted_data_bankB_0x7000_0x7FFF();
+			
+			// 1CD: do #<$2,*+$6
+			for (u16 k = 2; k > 0; k--)
+			{	// 1CF: bsr >*+$F0
+				verify_inverted_data_bankB_0x8000_0xFFBF();
+				
+				// 1D1: bfchg #$1,X:<<$FFE3
+				PCD ^= 0x01;
+			}
+			// 1D3: bfchg #$100,X:<<$FFE3
+			PCD ^= 0x100;
+		}
+		// 1D5: bfch #$80,x:<<$FFE3
+		PCD ^= 0x80;
+	}
+	
+	// 1D7: bsr >*+$1C
+	verify_inverted_prog_0x8000_0x87FF();
+	
+	// 1D9: move #>$FFF0,A
+	// 1DB: bsr >*+$F2
+	A = 0xFFF0;
+	verify_inverted_bankB_0x800_0x5FFF();
+	
+	// 1DD: rts
+}
+
+void write_uninverted_prog_0x8000_0x87FF()
+{	// 1DE: move #>$8000,R3
+	// 1E0: move #>$800,X0
+	// 1E2: bsr >*+$15C
+	// 1E4: rts
+	write_uninverted_prog(0x8000, 0x800);
+}
+
+void verify_uninverted_prog_0x8000_0x87FF()
+{	// 1E5: move #>$8000,R3
+	// 1E7: move #>$800,X0
+	// 1E9: bsr >*+$1D4
+	// 1EB: rts
+	verify_uninverted_prog(0x8000, 0x800);
+}
+
+void write_inverted_prog_0x8000_0x87FF()
+{	// 1EC: move #>$8000,R3
+	// 1EE: move #>$800,X0
+	// 1F0: bsr >*+$161
+	// 1F2: rts
+	write_inverted_prog(0x8000, 0x800);
+}
+
+void verify_inverted_prog_0x8000_0x87FF()
+{	// 1F3: move #>$8000,R3
+	// 1F5: move #>$800,X0
+	// 1F7: bsr >*+$1E3
+	// 1F9: rts
+	verify_inverted_prog(0x8000, 0x800);
+}
+
+void write_uninverted_data_bankA_0x0800_0x7FFF()
+{	// 1FA: move #>$800,R3
+	// 1FC: move #>$7800,X0
+	// 1FE: bsr >*+$138
+	// 200: rts
+	write_uninverted_data(0x800, 0x7800);
+}
+
+void verify_uninverted_data_bankA_0x0800_0x7FFF()
+{	// 201: move #>$800,R3
+	// 203: move #>$7800,X0
+	// 205: bsr >*+$1AB
+	// 207: rts
+	verify_uninverted_data(0x800, 0x7800);
+}
+
+void write_inverted_data_bankA_0x0800_0x7FFF()
+{	// 208: move #>$800,R3
+	// 20A: move #>$7800,X0
+	// 20C: bsr >*+$13B
+	// 20E: rts
+	write_inverted_data(0x800, 0x7800);
+}
+
+void verify_inverted_data_bankA_0x0800_0x7FFF()
+{	// 20F: move #>$800,R3
+	// 211: move #>$7800,X0
+	// 213: bsr >*+$1B8
+	// 215: rts
+	verify_inverted_data(0x800, 0x7800);
+}
+
+void write_uninverted_data_bankA_0x8000_0xBFFF_8banks()
+{	// 216: movep X:<<$FFE3,B
+	// 217: bfclr #$1C,B
+	u16 B = PCD & ~0x1C;
+
+	// Iterates through: 20, 24, 28, 2C, 30, 34, 38, 3C
+	
+	// 219: do #<$8,*+$C
+	for (u16 lc = 8; lc > 0; lc--)
+	{	// 21B: move #>$8000,R3
+		// 21D: movep B,X:<<$FFE3
+		// 21E: move #>$4000,X0
+		// 220: bsr >*+$116
+		PCD = B;
+		write_uninverted_data(0x8000, 0x4000);
+	}
+	
+	// 222: movep X:<<$FFE3,B
+	// 223: move #<+$4,Y1
+	// 224: add Y1,B
+	B = PCD + 0x04;
+	
+	// 225: rts
+}
+
+void verify_uninverted_data_bankA_0x8000_0xBFFF_8banks()
+{	// 226: movep X:<<$FFE3,B
+	// 227: bfclr #$1C,B
+	u16 B = PCD & ~0x1C;
+	
+	// Iterates through: 20, 24, 28, 2C, 30, 34, 38, 3C
+	
+	// 229: do #<$8,*+$C
+	for (u16 lc = 8; lc > 0; lc--)
+	{	// 22B: move #>$8000,R3
+		// 22D: movep B,X:<<$FFE3
+		// 22E: move #>$4000,X0
+		// 230: bsr >*+$180
+		PCD = B;
+		verify_uninverted_data(0x8000, 0x4000);
+	}
+	
+	// 232: movep X:<<$FFE3,B
+	// 233: move #<+$4,Y1
+	// 234: add Y1,B
+	B = PCD + 0x04;
+	
+	// 235: rts
+}
+
+void write_inverted_data_bankA_0x8000_0xBFFF_8banks()
+{	// 236: movep X:<<$FFE3,B
+	// 237: bfclr #$1C,B
+	u16 B = PCD & ~0x1C;
+	
+	// Iterates through: 20, 24, 28, 2C, 30, 34, 38, 3C
+
+	// 239: do #<$8,*+$C
+	for (u16 lc = 8; lc > 0; lc--)
+	{	// 23B: move #>$8000,R3
+		// 23D: movep B,X:<<$FFE3
+		// 23E: move #>$4000,X0
+		// 240: bsr >*+$107
+		PCD = B;
+		write_inverted_data(0x8000, 0x4000);
+	}
+	
+	// 242: movep X:<<$FFE3,B
+	// 243: move #<+$4,Y1
+	// 244: add Y1,B
+	B = PCD + 0x04;
+	
+	// 245: rts
+}
+
+void verify_inverted_data_bankA_0x8000_0xBFFF_8banks()
+{	// 246: movep X:<<$FFE3,B
+	// 247: bfclr #$1C,B
+	u16 B = PCD & ~0x1C;
+	
+	// Iterates through: 20, 24, 28, 2C, 30, 34, 38, 3C
+	
+	// 249: do #<$8,*+$C
+	for (u16 lc = 8; lc > 0; lc--)
+	{	// 24B: move #>$8000,R3
+		// 24D: movep B,X:<<$FFE3
+		// 24E: move #>$4000,X0
+		// 250: bsr >*+$17B
+		PCD = B;
+		verify_inverted_data(0x8000, 0x4000);
+	}
+	
+	// 252: movep X:<<$FFE3,B
+	// 253: move #<+$4,Y1
+	// 254: add Y1,B
+	B = PCD + 0x04;
+	
+	// 255: rts
+}
+
+void write_uninverted_data_bankA_0xC000_0xDFFF()
+{	// 256: move #>$C000,R3
+	// 258: move #>$2000,X0
+	// 25A: bsr >*+$DC
+	// 25C: rts
+	write_uninverted_data(0xC000, 0x2000);
+}
+
+void verify_uninverted_data_bankA_0xC000_0xDFFF()
+{	// 25D: move #>$C000,R3
+	// 25F: move #>$2000,X0
+	// 261: bsr >*+$14F
+	// 263: rts
+	verify_uninverted_data(0xC000, 0x2000);
+}
+
+void write_inverted_data_bankA_0xC000_0xDFFF()
+{	// 264: move #>$C000,R3
+	// 266: move #>$2000,X0
+	// 268: bsr >*+$DF
+	// 26A: rts
+	write_inverted_data(0xC000, 0x2000);
+}
+
+void verify_inverted_data_bankA_0xC000_0xDFFF()
+{	// 26B: move #>$C000,R3
+	// 26D: move #>$2000,X0
+	// 26F: bsr >*+$15C
+	// 271: rts
+	verify_inverted_data(0xC000, 0x2000);
+}
+
+void write_uninverted_data_bankB_0x6000_0x6FFF()
+{	// 272: move #>$6000,R3
+	// 274: move #>$1000,X0
+	// 276: bsr >*+$C0
+	// 278: rts
+	write_uninverted_data(0x6000, 0x1000);
+}
+
+void verify_uninverted_data_bankB_0x6000_0x6FFF()
+{	// 279: move #>$6000,R3
+	// 27B: move #>$1000,X0
+	// 27D: bsr >*+$133
+	// 27F: rts
+	verify_uninverted_data(0x6000, 0x1000);
+}
+
+void write_inverted_data_bankB_0x6000_0x6FFF()
+{	// 280: move #>$6000,R3
+	// 282: move #>$1000,X0
+	// 284: bsr >*+$C3
+	// 286: rts
+	write_inverted_data(0x6000, 0x1000);
+}
+
+void verify_inverted_data_bankB_0x6000_0x6FFF()
+{	// 287: move #>$6000,R3
+	// 289: move #>$1000,X0
+	// 28B: bsr >*+$140
+	// 28D: rts
+	verify_inverted_data(0x6000, 0x1000);
+}
+
+void write_uninverted_data_bankB_0x7000_0x7FFF()
+{	// 28E: move #>$7000,R3
+	// 290: move #>$1000,X0
+	// 292: bsr >*+$A4
+	// 294: rts
+	write_uninverted_data(0x7000, 0x1000);
+}
+
+void verify_uninverted_data_bankB_0x7000_0x7FFF()
+{	// 295: move #>$7000,R3
+	// 297: move #>$1000,X0
+	// 299: bsr >*+$117
+	// 29B: rts
+	verify_uninverted_data(0x7000, 0x1000);
+}
+
+void write_inverted_data_bankB_0x7000_0x7FFF()
+{	// 29C: move #>$7000,R3
+	// 29E: move #>$1000,X0
+	// 2A0: bsr >*+$A7
+	// 2A2: rts
+	write_inverted_data(0x7000, 0x1000);
+}
+
+void verify_inverted_data_bankB_0x7000_0x7FFF()
+{	// 2A3: move #>$7000,R3
+	// 2A5: move #>$1000,X0
+	// 2A7: bsr >*+$124
+	// 2A9: rts
+	verify_inverted_data(0x7000, 0x1000);
+}
+
+void write_uninverted_data_bankB_0x8000_0xFFBF()
+{	// 2AA: move #>$8000,R3
+	// 2AC: move #>$7FC0,X0
+	// 2AE: bsr >*+$88
+	// 2B0: rts
+	write_uninverted_data(0x8000, 0x7FC0);
+}
+
+void verify_uninverted_data_bankB_0x8000_0xFFBF()
+{	// 2B1: move #>$8000,R3
+	// 2B3: move #>$7FC0,X0
+	// 2B5: bsr >*+$FB
+	// 2B7: rts
+	verify_uninverted_data(0x8000, 0x7FC0);
+}
+
+void write_inverted_data_bankB_0x8000_0xFFBF()
+{	// 2B8: move #>$8000,R3
+	// 2BA: move #>$7FC0,X0
+	// 2BC: bsr >*+$8B
+	// 2BE: rts
+	write_inverted_data(0x8000, 0x7FC0);
+}
+
+void verify_inverted_data_bankB_0x8000_0xFFBF()
+{	// 2BF: move #>$8000,R3
+	// 2C1: move #>$7FC0,X0
+	// 2C3: bsr >*+$108
+	// 2C5: rts
+	verify_inverted_data(0x8000, 0x7FC0);
+}
+
+void verify_uninverted_bankB_0x800_0x5FFF()
+{	// 2C6: move #>$800,R3
+	// 2C8: move #>$5800,X0
+	// 2CA: bsr >*+$E6
+	// 2CC: rts
+	verify_uninverted_data(0x800, 0x5800);
+}
+
+void verify_inverted_bankB_0x800_0x5FFF()
+{	// 2CD: move #>$800,R3
+	// 2CF: move #>$5800,X0
+	// 2D1: bsr >*+$FA
+	// 2D3: rts
+	verify_inverted_data(0x800, 0x5800);
+}
+
+void verify_uninverted_mul_data_0xC000_0xDFFF()
+{	// 2EF: move #>$929,Y0
+	// 2F1: move #>$116,Y1
+	// 2F3: move #>$2000,X0
+	// 2F5: move #>+$1,X1
+	// 2F6: move #>$C000,R3
+	// 2F8: clr A
+	u16 Y0 = 0x929;
+	u16 Y1 = 0x116;
+	u16 X0 = 0x2000;
+	u16 X1 = 1;
+	u16 R3 = 0xC000;
+	u32 A = 0;
+	
+	// 2F9: do X0,*+$18
+	for (u16 lc = 0x2000; lc > 0; lc--)
+	{	// 2FB: move Y1,A0
+		// 2FC: macuu X1,Y0,A
+		// 2FD: asr A
+		// 2FE: clr B A0,X1
+		A = (Y1 + (X1 * Y0) << 1) >> 1;
+		X1 = (u16)A;
+		B = 0;
+		
+		// 2FF: move A0,A
+		// 300: rep #$8
+		// 301: lsr A
+		A <<= 16;		
+		A1 >>= 8;
+		
+		// 302: move Y1,B0
+		// 303: macuu X1,Y0,B
+		// 304: asr B
+		B = (Y1 + (X1 * Y0) << 1) >> 1;
+		
+		// 305: move B0,X0
+		// 306: move B0,B
+		X0 = (u16)B;
+		B <<= 16;
+		
+		// 307: move #>$FF00,X1
+		// 309: and X1,B
+		X1 = 0xFF00;
+		B &= 0xFF000000;		
+		
+		// 30A: add B,A X:(R3)+,B
+		A += B;
+		B1 = mem[R3++];
+		
+		// 30B: move A1,A
+		A &= 0xFFFF0000;
+		
+		// 30C: cmp B,A
+		// 30D: bsne >*-$39
+		if (B != A)
+			call_2D4();
+		
+		// 30F: move X0,X1
+		// 310: clr A
+		X1 = X0;
+		A = 0;
+	}
+
+	// 311: rts
+}
+
+void verify_inverted_mul_data_0xC000_0xDFFF()
+{	// 312: move #>$929,Y0
+	// 314: move #>$116,Y1
+	// 316: move #>$2000,X0
+	// 318: move #<+$1,X1
+	// 319: move #>$C000,R3
+	// 31B: clr A
+	
+	u16 Y0 = 0x929;
+	u16 Y1 = 0x116;
+	u16 X0 = 0x2000;
+	u16 X1 = 1;
+	u16 R3 = 0xC000;
+	u32 A = 0;
+	
+	// 31C: do X0,*+$19
+	for (u16 lc = 0x2000; lc > 0; lc--)
+	{	// 31E: move Y1,A0
+		// 31F: macuu X1,Y0,A
+		// 320: asr A
+		// 321: clr B A0,X1
+		A = (Y1 + (X1 * Y0) << 1) >> 1;
+		X1 = (u16)A;
+		B = 0;
+
+		// 322: move A0,A
+		// 323: rep #$8
+		// 324: lsr A
+		A <<= 16;		
+		A1 >>= 8;
+
+		// 325: move Y1,B0
+		// 326: macuu X1,Y0,B
+		// 327: asr B
+		B = (Y1 + (X1 * Y0) << 1) >> 1;
+
+		// 328: move B0,X0
+		// 329: move B0,B
+		X0 = (u16)B;
+		B <<= 16;
+		
+		// 32A: move #>$FF00,X1
+		// 32C: and X1,B
+		X1 = 0xFF00;
+		B &= 0xFF000000;
+		
+		// 32D: add B,A X:(R3)+,B
+		// 32E: not A
+		A = ~(A + B);
+		B1 = mem[R3++];
+		
+		// 32F: move A1,A
+		A &= 0xFFFF0000;
+		
+		// 330: cmp B,A
+		// 331: bsne >*-$5D
+		if (B != A)
+			call_2D4();
+		
+		// 333: move X0,X1
+		// 334: clr A
+		X1 = X0;
+		A = 0;
+	}
+
+	// 335: rts
+}
+
+void write_uninverted_data(u16 R3, u16 X0)
+{	// 336: move #>$FFF0,Y0
+	// 338: do X0,*+$5
+	// 33A: dec24 A A,X:(R3)+
+	// 33B: tcs Y0,A
+	// 33C: move A1,A
+	// 33D: rts
+	for (u16 lc = X0; lc > 0; lc--)
+	{
+		mem[R3++] = A;
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+	}
+}
+
+void write_uninverted_prog(u16 R3, u16 X0)
+{	// 33E: move #>$FFF0,Y0
+	// 340: do X0,*+$6
+	// 342: move A,P:(R3)+
+	// 343: dec24 A
+	// 344: tcs Y0,A
+	// 345: move A1,A
+	// 346: rts
+	for (u16 lc = X0; lc > 0; lc--)
+	{
+		pmem[R3++] = A;
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+	}
+}
+
+void write_inverted_data(u16 R3, u16 X0)
+{	// 347: move #>$FFF0,Y0
+	// 349: do X0,*+$7
+	// 34B: dec24 A A,B
+	// 34C: tcs Y0,A
+	// 34D: move A1,A
+	// 34E: not B
+	// 34F: move B1,X:(R3)+
+	// 350: rts
+	for (u16 lc = X0; lc > 0; lc--)
+	{
+		B = A;
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+		B = ~B;
+		mem[R3++] = B;
+	}
+}
+
+void write_inverted_prog(u16 R3, u16 X0)
+{	// 351: move #>$FFF0,Y0
+	// 353: do X0,*+$8
+	// 355: dec24 A A,B
+	// 356: tcs Y0,A
+	// 357: move A1,A
+	// 358: not B
+	// 359: move B1,B
+	// 35A: move B,P(R3)+
+	// 35B: rts
+	for (u16 lc = 8; lc > 0; lc--)
+	{
+		B = A;
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+		B = !B;
+		pmem[R3++] = B;
+	}
+}
+
+void verify_uninverted_data(u16 R3, u16 X0)
+{	// 3B0: move #>$FFF0,Y0
+	// 3B2: move X:(R3)+,B
+	// 3B3: andi #$FE,CCR
+	// 3B4: do X0,*+$8
+	// 3B6: tcs Y0,A
+	// 3B7: move A1,A
+	// 3B8: cmp B,A
+	// 3B9: bsne >*-$5D
+	// 3BB: dec24 A X:(R3)+,B
+	// 3BC: rts
+	u16 B = mem[R3++];
+	for (u16 lc = X0; lc > 0; lc--)
+	{
+		if (A != B)
+			call_35C();
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+		B = mem[R3++];
+	}
+}
+
+void verify_uninverted_prog(u16 R3, u16 X0)
+{	// 3BD: move #>$FFF0,Y0
+	// 3BF: move P:(R3)+,B
+	// 3C0: andi #$FE,CCR
+	// 3C1: do X0,*+$9
+	// 3C3: tcs Y0,A
+	// 3C4: move A1,A
+	// 3C5: cmp B,A
+	// 3C6: bsne >*-$31
+	// 3C8: move P:(R3)+,B
+	// 3C9: dec24 A
+	// 3CA: rts
+	u16 B = pmem[R3++];
+	for (u16 lc = X0; lc > 0; lc--)
+	{
+		if (A != B)
+			call_395();
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+		B = pmem[R3++];
+	}
+}
+
+void verify_inverted_data(u16 R3, u16 X0)
+{	// 3CB: move #>$FFF0,Y0
+	// 3CD: move X:(R3)+,B
+	// 3CE: andi #$FE,CCR
+	// 3CF: do X0,*+$A
+	// 3D1: tcs Y0,A
+	// 3D2: move A1,A
+	// 3D3: not B
+	// 3D4: move B1,B
+	// 3D5: cmp B,A
+	// 3D6: bsne >*-$7A
+	// 3D8: dec24 A X:(R3)+,B
+	// 3D9: rts
+	u16 B = mem[R3++];
+	for (u16 lc = X0; lc > 0; lc--)
+	{
+		if (A != ~B)
+			call_35C();
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+		B = mem[R3++];
+	}
+}
+
+void verify_inverted_prog(u16 R3, u16 X0)
+{	// 3DA: move #>$FFF0,Y0
+	// 3DC: move P:(R3)+,B
+	// 3DD: andi #$FE,CCR
+	// 3DE: do X0,*+$B
+	// 3E0: tcs Y0,A
+	// 3E1: move A1,A
+	// 3E2: not B
+	// 3E3: move B1,B
+	// 3E4: cmp B,A
+	// 3E5: bsne >*-$50
+	// 3E7: move P:(R3)+,B
+	// 3E8: dec24 A
+	// 3E9: rts
+	u16 B = pmem[R3++];
+	for (u16 lc = X0; lc > 0; lc--)
+	{
+		if (A != ~B)
+			call_395();
+		A--;
+		if (A == 0xFFFF)
+			A = 0xFFF0;
+		B = pmem[R3++];
+	}
+}

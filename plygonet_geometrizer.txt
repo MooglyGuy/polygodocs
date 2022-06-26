@@ -1,0 +1,2200 @@
+// Initial values sent up to Exxx/Fxxx range (poly-rasterizer registers), never changed AFAIK:
+// F000: FEE0
+// F001: FF3F
+// F002: 0180
+// F003: FF70
+// F004: FF80
+// F005: 0100
+// F006: 0000
+// F007: 0010
+// F008: FF40
+// F009: 00C0
+// E002: FF6C
+// E000: 0000
+
+// 158: Model count
+// 2F4: Minimum value in 8xxx population routine
+// 2F5: Current address in 6xxx range
+// 2F6: Current address in 8xxx range
+// 2F7: Current address in 7xxx range
+// 2FF: vec3 from C000
+// 311: Vertex count for this primitive
+
+static uint16_t model_count; // 0x158
+
+#define RAM_BANK_GROUP_B (1 << 1)
+
+void call_139(s16 Y0)
+{	// 139: sub Y0,A B,Y1
+	// 13A: abs A A,B
+	// 13B: asr16 A
+	A -= Y0;
+	Y1 = B;
+	B = A;
+	A = abs(A) >> 16;
+	
+	// 13C..14B: div Y1,A
+	// 14C: rnd A A0,X1
+	X1 = 0x0008;
+	A = round(A);
+	// 14D..15C: div Y1,A
+	// 15D: tst B A0,X0
+	// 15E: tfr X,B Y0,A
+	// 15F: bmi <*+$2
+	// 160: neg B
+	// 161: neg A
+	
+	X0 = 0x0DF0;
+	if (B < 0)
+	{
+		A = 0 - Y0;
+		B = 0 - X1:X0;
+	}
+	else
+	{
+		A = Y0; // A = FF F2CD 0000
+		B = X1:X0; // B = 00 0008 0DF0
+	}
+	
+	// 162: add B,A
+	// 163: asl B
+	A += B; // A = 00 0D2A F210
+	B <<= 1; // B = FF FFEF E420
+	
+	// 164: rep Y1
+	// 165: add B,A A,X:(R1)+
+	for (u16 lc = Y1; lc > 0; lc--, A += B)
+		mem[R1++] = A;
+}
+
+void call_167()
+{
+	// bfset #$2,X:<<$FFE3
+	PCD |= RAM_BANK_GROUP_B;
+	
+	// move #>$7000,A
+	// move X:>$2F5,R3
+	// move R3,X0
+	// sub X0,A
+	u16 A = 0x7000 - mem[0x2F5]; // A = 1000, R3 = 6000
+	
+	// rep A1
+	// move A0,X:(R3)+
+	for (u16 A1 = 0x7000 - mem[0x2F5]; A1 > 0; A1--)
+		mem[R3++] = A0;
+
+	// bfclr #$2,X:<<$FFE3
+	PCD &= ~RAM_BANK_GROUP_B;
+}
+
+// Simplified version begins (NOT YET DONE)
+void process_geometry()
+{
+	HCR |= (HF3 | HF2);
+	PCD ^= 0x80;
+	PCD &= ~(1 << 1);
+	
+	// Toggle the source buffer for POLY hardware
+	mem[0] ^= 4;
+	mem[0xE000] = mem[0];
+	mem[0xE001] = mem[0];
+	
+	*(vec3 *)0x2FF = *(vec3 *)0xC000;
+	
+	model_count = mem[0xC003] >> 1;
+
+	memcpy(&mem[0x6010], &mem[0xC010], model_count * 16 * sizeof(u16));
+	mem[0x6010 + model_count * 16] = 0xFFFF;
+	
+	memcpy(&mem[0x7000], &mem[0xD000], mem[0xC004] * 16 * sizeof(u16));
+	memcpy(&mem[0x7F00], &mem[0xDF00], model_count * sizeof(u16));
+	
+	memcpy(&mem[0x7C00], &mem[0xDC00], mem[0xC005] * 16 * sizeof(u16));
+	mem[0x7C00 + model_count * 16] = 0xFFFF;
+
+	mem[0x155] = mem[0xC006]; // 0000
+	mem[0x156] = mem[0xC007]; // 0000
+	mem[0x157] = mem[0xC008]; // 0000
+	
+	mem[0xDFF8] = mem[0x312]; // 6000
+	mem[0xDFF9] = mem[0x313]; // 8000
+	mem[0xDFFA] = mem[0x314]; // 6000
+	mem[0xDFFB] = mem[0x315]; // 8000
+}
+// Simplified version ends
+
+// Entry point for host command 0x99/0x19, geometrize a batch of models
+void func_178()
+{
+	// X = FFFF 8000
+	// Y = FFE3 3000
+	// A = 00 1000 0000
+	// B = 00 0001 0000
+	// R0 = FFC4, R1 = 7F01, R2 = DC00, R3 = 7000
+	// N0 = 0004, N1 = 0000, N2 = 0000, N3 = 0003
+	// M0 = FFFF, M1 = FFFF, M2 = FFFF, M3 = FFFF
+	
+	// 178: bfset #$18,X:(R0) ; 14B0 3818
+	HCR |= (HF3 | HF2);
+	
+	// 17A: move #>$E000,R1
+	// 17C: move #>$0,R2
+	u16 R1 = 0xE000;
+	u16 R2 = 0;
+	
+	// 17E: bfchg #$80,X:<<$FFE3
+	PCD ^= 0x80;
+
+	// 180: bfchg #$1,X:(R2)
+	mem[R2] ^= 1; // mem[0000] = 0004
+	
+	// 182: move X:(R2)+,X1
+	// 183: move X1,X:(R1)+
+	// 184: move X1,X:(R1)+
+	u16 X1 = X[R2++]; // X = 0004 8000, R2 = 1
+	mem[R1++] = X1; // mem[E000] = 0004, R1 = E001
+	mem[R1++] = X1; // mem[E001] = 0004, R1 = E002
+	
+	// 185: bfclr #$2,X:<<$FFE3
+	// 187: move #>$C000,R2
+	// 189: move #>$02FF,R3
+	PCD &= ~(1 << 1);
+	R2 = 0xC000;
+	u16 R3 = 0x02FF;
+	
+	// 18B: move X:(R2)+,X0
+	// 18C: move X0,X:(R3)+
+	// 18D: move X:(R2)+,X0
+	// 18E: move X0,X:(R3)+
+	// 18F: move X:(R2)+,X0
+	// 190: move X0,X:(R3)+
+	mem[R3++] = mem[R2++]; // mem[02FF] = mem[C000] (539E), R2/R3 = C001/0300
+	mem[R3++] = mem[R2++]; // mem[0300] = mem[C001] (5A82), R2/R3 = C002/0301
+	mem[R3++] = mem[R2++]; // mem[0301] = mem[C002] (DD5D), R2/R3 = C003/0302
+	
+	// 191: move X:>$C003,B ; 3CB4 C003
+	// 193: asr B
+	// 194: move B,X:>$158
+	s32 B = mem[C003]; // B = 0
+	B >>= 1;
+	mem[158] = B;
+
+	// 196: move X:>$C003,A ; 3C94 C003
+	// 198: asl4 A
+	// 199: move #>$C010,R2
+	// 19B: move #>$6010,R3
+	// 19D: do A,*+$4 ; 0404 0002
+	// 19F: move X:(R2)+,X0
+	// 1A0: move X0,X:(R3)+
+	// 1A1: move #>$FFFF,X0
+	// 1A3: move X0,X:(R3)
+	R2 = 0xC010;
+	R3 = 0x6010;
+	for (u16 A = mem[C003] << 4; A > 0; A--)
+		mem[R3++] = mem[R2++];
+	mem[R3] = 0xFFFF;
+	
+	// 1A4: move X:>$C004,A
+	// 1A6: move #>$D000,R2
+	// 1A8: move #>$7000,R3
+	// 1AA: asl4 A
+	// 1AB: do A,*+$4
+	// 1AD: move X:(R2)+,X0
+	// 1AE: move X0,X:(R3)+
+	R2 = 0xD000;
+	R3 = 0x7000;
+	for (u16 A = mem[C004] << 4; A > 0; A--)
+		mem[R3++] = mem[R2++];
+
+	// 1AF: move X:>$C003,A
+	// 1B1: move #>$DF00,R2
+	// 1B3: move #>$7F00,R3
+	// 1B5: do A,*+$4
+	// 1B7: move X:(R2)+,X0
+	// 1B8: move X0,X:(R3)+
+	R2 = 0xDF00;
+	R3 = 0x7F00;
+	for (u16 A = mem[0xC003]; A > 0; A--)
+		mem[R3++] = mem[R2++];
+
+	// 1B9: move X:>$C005,A
+	// 1BB: move #>$DC00,R2
+	// 1BD: move #>$7C00,R3
+	// 1BF: do A,*+$4
+	// 1C1: move X:(R2)+,X0
+	// 1C2: move X0,X:(R3)+
+	// 1C3: move #>$FFFF,X0
+	// 1C5: move X0,X:(R3)+
+	R2 = 0xDC00;
+	R3 = 0x7C00;
+	for (u16 A = mem[0xC005] << 4; A > 0; A--)
+		mem[R3++] = mem[R2++];
+	mem[R3] = 0xFFFF;
+
+	// 1C6: move X:>$C006,X0
+	// 1C8: move X0,X:>$155
+	// 1CA: move X:>$C007,X0
+	// 1CC: move X0,X:>$156
+	// 1CE: move X:>$C008,X0
+	// 1D0: move X0,X:>$157
+	mem[0x155] = mem[0xC006]; // 0000
+	mem[0x156] = mem[0xC007]; // 0000
+	mem[0x157] = mem[0xC008]; // 0000
+	
+	// 1D2: move X:>$312,X0
+	// 1D4: move X0,X:>$DFF8
+	// 1D6: move X:>$313,X0
+	// 1D8: move X0,X:>$DFF9
+	// 1DA: move X:>$314,X0
+	// 1DC: move X0,X:>$DFFA
+	// 1DE: move X:>$315,X0
+	// 1E0: move X0,X:>$DFFB
+	mem[0xDFF8] = mem[0x312]; // 6000
+	mem[0xDFF9] = mem[0x313]; // 8000
+	mem[0xDFFA] = mem[0x314]; // 6000
+	mem[0xDFFB] = mem[0x315]; // 8000
+	
+	// 1E2: bfclr #$10,X:(R0)
+	HCR &= ~HF3;
+
+	// 1E4: move #>$6010,R0
+	// 1E6: move #>$7F00,R1
+	// 1E8: move #>$4,N0
+	// 1EA: move #>$3,N3
+	R0 = 0x6010;
+	R1 = 0x7F00;
+	u16 N0 = 4;
+	u16 N3 = 3;
+	
+	// note: X1/Y1 are bits 31..16, X0/Y0 are bits 15..0
+
+	// 1EC: do forever, *+$47
+	s16 xcoord, ycoord, zcoord;
+	while (true)
+	{	// 1EE: move X:(R0)+N0,A ; 3C8C
+		// 1EF: tst A X:(R1)+,X0
+		// 1F0: bmi >*+$44
+		// 1F2: tst2 X0
+		// 1F3: beq >*+$41
+		s16 A = (s16)mem[R0]; // Loads 4D0E from 6010
+		R0 += N0;
+		u16 X0 = mem[R1++]; // Loads 1010 from 7F00
+		if (A > 0 && X0 != 0)
+		{
+			// 1F5: move N0,N2
+			// 1F6: move X0,R2
+			// 1F7: bfset #$6000,R2
+			// 1F9: move X:(R0)+,X1
+			// 1FA: move X:(R0)+,Y1
+			// 1FB: move X:(R0)-,Y0
+			// 1FC: move (R2)+N2
+			// 1FD: move (R0)-
+			u16 N2 = N0; // N2 = 0004
+			u16 R2 = X0; // R2 = 1010
+			R2 |= 0x6000; // R2 = 7010
+			xcoord = (s16)mem[R0+0]; // XYZ triplet from 6014, 6015, 6016
+			ycoord = (s16)mem[R0+1];
+			zcoord = (s16)mem[R0+2];
+			R2 += N2; // Advance R2 by 4 words: 7014
+			
+			// 7010:
+			// 0000 FF97 01E2 7FFC
+			// 0000 0000 0000 7F72
+			// 0BC3 0000 F43C 7F72
+			// 7020:
+			// 0000 0086 01F8 7FFC
+			// 0000 0000 0000 7F72
+			// 0BC3 0000 F43C 7F72
+			// 7030:
+			// 004F 000E 01ED 7FFC
+			// 0000 0000 0000 7F72
+			// 0BC3 0000 F43C 7F72
+			// 7040:
+			// FFB0 000E 01ED 7FFC
+			// 0000 0000 0000 7F72
+			// 0BC3 0000 F43C 7F72
+			// 7050:
+			// 0000 000D 01F7 7FFC
+			// 0000 0000 0000 7F72
+			// 0BC3 0000 F43C 7F72
+			// 7060:
+			// 0000 FF64 0251 7FFC
+			// 0000 0000 0000 7F72
+			// 0BC3 0000 F43C 7F72
+			// 7070:
+			// 0000 FFAA 0252 7FFC
+			// 0000 0000 0000 7F72
+			// 0BC3 0000 F43C 7F72
+
+			// 6010: 4D0E 0000 000D 0000
+			// 0000 0000 0000
+			// 7FFE 0000 0000
+			// 0000 7FFE 0000
+			// 0000 0000 7FFE
+			// 6020: 4D0D 0000 000D 0000
+			// 0000 0000 0000
+			// 7FFE 0000 0000
+			// 0000 7FFE 0000
+			// 0000 0000 7FFE
+			// 6030: 4D0C 0000 000D 0000
+			// 0000 0000 0000
+			// 7FFE 0000 0000
+			// 0000 7FFE 0000
+			// 0000 0000 7FFE
+			// 6040: 4D0B 0000 000D 0000
+			// 0000 0000 0000
+			// 7FFE 0000 0000
+			// 0000 7FFE 0000
+			// 0000 0000 7FFE
+			// 6050: 0003 0000 0011 0000
+			// 0000 0000 0000
+			// 7FFF 0000 0000
+			// 0000 7FFF 0000
+			// 0000 0000 7FFF
+			// 6060: 0002 0000 0011 0000
+			// 0000 FFFE 0002
+			// 7FFF 0000 0000
+			// 0000 7FFF 0000
+			// 0000 0000 7FFF
+			// 6070: 0004 0000 0011 0000
+			// 0000 0000 0000
+			// 7FFF 0000 0000
+			// 0000 7FFF 0000
+			// 0000 0000 7FFF
+			// 6080: 0001 0000 0011 0000
+			// 0000 FFFE 0002
+			// 7FFF 0000 0000
+			// 0000 7FFF 0000
+			// 0000 0000 7FFF
+			// 6090: 0000 0000 0011 0000
+			// 0000 FFFD 0003
+			// 7FFF 0000 0000
+			// 0000 7FFF 0000
+			// 0000 0000 7FFF
+			// 60A0: 4D08 0000 000D 0000
+			// 0000 0000 0000
+			// 7FFE 0000 0000
+			// 0000 7FFE 0000
+			// 0000 0000 7FFE
+			// 60B0: 4D09 0000 000D 0000
+			// 0000 0000 0000
+			// 7FFE 0000 0000
+			// 0000 7FFE 0000
+			// 0000 0000 7FFE
+			// 60C0: 4D0A 0000 000D 0000
+			// 0000 0000 0000
+			// 7FFE 0000 0000
+			// 0000 7FFE 0000
+			// 0000 0000 7FFE
+			
+			// mat3x3 * vec3 + vec3, mat3x3 comes from 70x4..70xF
+			// 1FE: move X:(R2+$9),X0
+			// 200: mpy Y0,X0,A X:(R2+$6),X0
+			// 202: mac Y1,X0,A X:(R2+$3),X0
+			// 204: macr X1,X0,A X:(R2)+,X0
+			// 205: add X0,A X:(R2+$9),X0
+			// 207: move A,X:(R0)+
+			// 208: mpy Y0,X0,A X:(R2+$6),X0
+			// 20A: mac Y1,X0,A X:(R2+$3),X0
+			// 20C: macr X1,X0,A X:(R2)+,X0
+			// 20D: add X0,A X:(R2+$9),X0
+			// 20F: move A,X:(R0)+
+			// 210: mpy Y0,X0,A X:(R2+$6)
+			// 212: mac Y1,X0,A X:(R2+$3)
+			// 214: macr X1,X0,A X:(R2+),X0
+			// 215: add X0,A
+			// 216: move A,X:(R0)+
+			// Replace XYZ at 6014,6015,6016 with transformed values
+			// Matrix:
+			//	70xD	70xA	70x7	70x4
+			//	70xE	70xB	70x8	70x5
+			//	70xF	70xC	70x9	70x6
+
+			mem[R0++] = zcoord * mem[R2+ 9] + ycoord * mem[R2+6] + xcoord * mem[R2+3] + mem[R2+0];
+			mem[R0++] = zcoord * mem[R2+10] + ycoord * mem[R2+7] + xcoord * mem[R2+4] + mem[R2+1];
+			mem[R0++] = zcoord * mem[R2+11] + ycoord * mem[R2+8] + xcoord * mem[R2+5] + mem[R2+2];
+			R2 += 3;
+			
+			// 217: move #>$FFFE,N2
+			N2 = -2;
+			
+			// Transform the XYZ coordinates in-place at the following addresses:
+			// 6017, 6018, 6019
+			// 601A, 601B, 601C
+			// 601D, 601E, 601F
+			// 219: do #<$3,*+$19
+			for (u16 lc = 3; lc > 0; lc--)
+			{	// 021B: move X:(R0)+,X1
+				// 021C: move X:(R0)+,Y1
+				// 021D: move X:(R0)-,Y0
+				// 021E: move (R0)-
+				xcoord = (s16)mem[R0+0]; // X1
+				ycoord = (s16)mem[R0+1]; // Y1
+				zcoord = (s16)mem[R0+2]; // Y0
+				
+				// mat3x3 * vec3
+				// 021F: move X:(R2+$6),X0
+				// 0221: mpy Y0,X0,A X:(R2+$3),X0
+				// 0223: mac Y1,X0,A X:(R2)+,X0
+				// 0224: macr X1,X0,A X:(R2+$6),X0
+				// 0226: move A,X:(R0)+
+				// 0227: mpy Y0,X0,A X:(R2+$3),X0
+				// 0229: mac Y1,X0,A X:(R2)+,X0
+				// 022A: macr X1,X0,A X:(R2+$6),X0
+				// 022C: move A,X:(R0)+
+				// 022D: mpy Y0,X0,A X:(R2+$3),X0
+				// 022F: mac Y1,X0,A X:(R2)+N2,X0
+				// 0230: macr X1,X0,A
+				// 0231: move A,X:(R0)+
+				mem[R0++] = zcoord * mem{R2+6] + ycoord * mem[R2+3] + xcoord * mem[R2+0];
+				mem[R0++] = zcoord * mem{R2+7] + ycoord * mem[R2+4] + xcoord * mem[R2+1];
+				mem[R0++] = zcoord * mem{R2+8] + ycoord * mem[R2+5] + xcoord * mem[R2+2];
+			}
+
+			// 232
+			// nop
+		}
+
+		u16 newA = mem[R0];
+		R0 += N0;
+		// R0 is now 6020, 6030, 6040, etc.
+
+		// 0234
+		// move #>$FFFF,X1
+		// cmp X1,A X:(R0)+N0,A
+		// brkeq
+		if (A == 0xFFFF)
+			break;
+	}
+
+	// 023B
+	R0 = 0x6010;
+	call_652();
+
+	// 23F: clr A
+	// 240: move A,X:>$159
+	s16 A = 0;
+	mem[0x159] = 0;
+
+	// 242: bfclr #$100,X:<<$FFE3
+	PCD &= ~(1 << 8);
+
+	// 244: do forever, *+$3E8
+	while (true)
+	{
+		// 246: move X:>$159,B
+		// 248: move X:>$158,X0
+		s16 B = (s16)mem[0x159]; // B = 0
+		X0 = mem[0x158]; // X0 0000
+		
+		// 24A: bfclr #$2,X:<<$FFE3
+		PCD &= ~(1 << 1);
+		
+		// 24C: cmp X0,B
+		// 24D: bseq >*+$3F6
+		if (X0 == B)
+			call_643();
+		
+		// 24F: inc24 B X:(R0)+,A
+		// 250: move B,X:>$159
+		u16 B += 0x10000;
+		A = mem[R0++]; // A = 4D0E
+		mem[0x159] = (B >> 16);
+		
+		// 252: tst A (R0)-
+		// 253: bmi >*+$3DA
+		R0--;
+		if (A > 0)
+		{	// 255: move #>$2FF,B
+			// 257: move #>$4,X0
+			// 259: bfclr #$4000,A
+			// 25B: tcc X0,B
+			// 25C: move B,X:>$2FE
+			mem[0x2FE] = (A & 0x4000) ? 0x0004 : 0x02FF;
+			A &= ~0x4000;
+			X0 = 4;
+			
+			// 25E: tfr A,B // B = 00 0D0E 0000
+			// 25F: asr4 B
+			// 260: asr4 B
+			// 261: move #>$8,X1
+			// 263: add X1,B
+			// 264: move X:(B1),X1
+			// 265: tst2 X1
+			// 266: bmi >*+$3C2
+			// 268: movep X:<<$FFE3,B  ; 19E3
+			// 269: move #>$FFE3,Y1    ; 3C7C FFE3
+			// 26B: and Y1,B           ; 4A6F
+			// 26C: or X1,B            ; 4A2E
+			// 26D: movep B,X:<<$FFE3  ; 18E3
+			u16 bank_index = mem[8 + (A >> 8)];
+			if (bank_index & 0x8000)
+				goto label_628;
+			PCD = (PCD & 0xFFE3) | bank_index;
+			
+			// 26E: bfclr #$FF00,A
+			// 270: move #>$8000,X1
+			// 272: add X1,A
+			u16 data_addr = (A & 0x00ff) | 0x8000; // A = 00 800E 0000
+			
+			// 273: move #>$6,N0
+			N0 = 6;
+			
+			// 275: move X:(A1),R1
+			u16 model_addr = mem[data_addr]; // R1 = mem[800E] = 9660
+			
+			// 276: move X:>$157,A
+			A = mem[0x157]; // A = 0
+			
+			// 278: tst A
+			// 279: beq <*+$3
+			// 27A: move X:(R1),R3
+			// 27B: bra <*+$C
+			// 27C: move X:(R0+N0),B
+			// 27D: move #>$1000,X0
+			// 27F: mpy B1,X0,B
+			// 280: move X:>$155,X0
+			// 282: move X:(R1)+,R3
+			// 283: move X:(R1)+,X1
+			// 284: mpy X1,X0,A
+			// 285: cmp A,B
+			// 286: bgt <*-$4
+			if (A != 0)
+			{	// 27A
+				R3 = mem[R1];
+			}
+			else
+			{	// 27C
+				B1 = mem[R0 + N0]; // B1 = mem[6016] = 01E2
+				X0 = 0x1000;
+				B = B1 * X0; // B = 1000 * 01E2 = 00 003C 4000
+				X0 = mem[0x155]; // X0 = 3BF4
+				do
+				{
+					R3 = mem[R1++];
+					X1 = mem[R1++];
+					A = X1 * X0;
+				} while(A > B);
+			}
+
+			// 287: move X:(R3)+,R2
+			// 288: move R3,R1
+			// 289: move R0,X:>$15A
+			// 28B: move #>$4,N0
+			// 28D: move R0,R3
+			// 28E: move #>$7,N3
+			// 290: move (R0)+N0
+			// 291: clr A (R3)+N3
+			// 292: move A,N1
+			R2 = mem[R3++]; // R2 = mem[9664] = 966D
+			R1 = R3; // R1 = 9665
+			mem[0x15A] = R0; // mem[15A] = 6010
+			N0 = 4;
+			R3 = R0; // R3 = 6010
+			N3 = 7;
+			R0 += N0; // R0 = 6014
+			A = 0;
+			R3 += N3; // R3 = 6017
+			N1 = A; // N1 = 0
+			
+			// vec3 dot product between R0 (6014) and R3 (6017)			
+			// 293: move X:(R0)+,Y0 X:(R3)+,X0
+			// 294: mpy Y0,X0,A X:(R0)+,Y1 X:(R3)+,X0
+			// 295: mac Y1,X0,A X:(R0)+,X1 X:(R3)+,X0
+			// 296: mac X1,X0,A X:(R3)+,X0
+			A = mem[R0+0] * mem[R3+0] + mem[R0+1] * mem[R3+1] + mem[R0+2] * mem[R3+2];
+			
+			// 297: bmi <*+$3
+			// 298: bfset #$4,N1
+			if (A >= 0)
+				N1 |= 4;
+			
+			// vec3 dot product between R0 (6014) and R3 (601A)
+			// 29A: mpy Y0,X0,A X:(R3)+,X0
+			// 29B: mac Y1,X0,A X:(R3)+,X0
+			// 29C: mac X1,X0,A X:(R3)+,X0
+			A = mem[R0+0] * mem[R3+3] + mem[R0+1] * mem[R3+4] + mem[R0+2] * mem[R3+5];
+			
+			// 29D: bmi <*+$3
+			// 29E: bfset #$2,N1
+			if (A >= 0)
+				N1 |= 2;
+			
+			// vec3 dot product between R0 (6014) and R3 (601D)
+			// 2A0: mpy Y0,X0,A X:(R3)+,X0
+			// 2A1: mac Y1,X0,A X:(R3)+,X0
+			// 2A2: mac X1,X0,A
+			A = mem[R0+0] * mem[R3+6] + mem[R0+1] * mem[R3+7] + mem[R0+2] * mem[R3+8];
+			
+			// 2A3: bmi <*+$3
+			// 2A4: bfset #$1,N1
+			if (A >= 0)
+				N1 |= 1;
+			
+			// 2A6: move N1,X:>$30F ; store positive/negative flags from above dot products
+			mem[0x30F] = N1;
+			
+			// 2A8: move X:(R1+N1),X0
+			X0 = mem[R1 + N1]; // X0 = mem[9665 + 5] = 96CB
+			
+			// 2A9: move X:>$15A,R0
+			// 2AB: move #>$2,N0
+			// 2AD: move X0,X:>$15C
+			// 2AF: move X:(R0+N0),X0
+			// 2B0: move X0,X:>$15B
+			R0 = mem[0x15A]; // R0 = 6010
+			N0 = 2;
+			mem[0x15C] = X0; // mem[15C] = 96CB
+			X0 = mem[R0 + N0]; // X0 = mem[6010 + 2] = mem[6012] = 000D
+			mem[0x15B] = X0; // mem[15B] = 000D
+			
+			// 2B2: move X:(R2)+,X1
+			X1 = mem[R2++]; // X2 = mem[0008] = 0000
+			
+			// 2B3: move #>$316,R0
+			R0 = 0x316;
+
+			// 2B5: do X1,*+$4f
+			for (u16 lc = X1; lc > 0; lc--)
+			{	// 2B7: move X:(R2+$0),A
+				A = mem[R2]; // A = mem[966E] = 00AA
+				
+				// 2B9: move A,X:>$30E
+				mem[0x30E] = A;
+				
+				// 2BB: move X:>$30F,X0
+				// 2BD: rep X0
+				// 2BE: lsr A
+				// 2BF: lsr A
+				A >>= X0;
+				bool carry = A & 1;
+				A >>= 1; // A = 0001
+				if (!carry)
+				{
+					// 305: move #>$6,N0
+					// 307: nop
+					// 308: move (R0)+N0
+					// 309: bra <*-$9
+					R0 += 6; // R0 = 31C
+					
+					// 300: move #>$4,N2
+					// 302: nop
+					// 303: move (R2)+N2
+					R2 += N2; // R2 += 4, R2 = 0005
+					break;
+				}
+				
+				// 2C2: move X:>$30E,A
+				A = mem[0x30E]; // Restores 00AA to A
+				
+				// 2C4: tst A
+				// 2C5: bpl <*+$2
+				// 2C6: nop
+				// Does nothing
+				
+				// 2C7: move X:(R2+$1),X1
+				// 2C8: move X:(R2+$2),Y1
+				// 2C9: move X:(R2+$3),Y0
+				// 2CD: move R2,N1
+				xcoord = mem[R2+1]; // FFCE
+				ycoord = mem[R2+2]; // 0000
+				zcoord = mem[R2+3]; // FFFB
+				N1 = 0x966E;
+				
+				// 2CE: move X:>$15A,R2
+				R2 = mem[0x15A]; // R2 = 6010
+				
+				// 2D0: move X:(R0)+,X0
+				// 2D1: move X:(R2+$D),X0
+				R0++; // R0 = 317
+				X0 = mem[R2 + 0xD]; // X0 = mem[601D] = 0;
+				
+				// 2D3: mpy Y0,X0,A X:(R2+$A),X0
+				// 2D5: mac Y1,X0,A X:(R2+$7),X0
+				// 2D7: macr X1,X0,A X:(R2+$4),X0
+				// 2D9: add X0,A X:(R2+$E),X0
+				// 2DB: move A,X:(R0)+
+				// 2DC: mpy Y0,X0,A X:(R2+$B),X0
+				// 2DE: mac Y1,X0,A X:(R2+$8),X0
+				// 2E0: macr X1,X0,A X:(R2+$5),X0
+				// 2E2: add X0,A X:(R2+$F),X0
+				// 2E4: tfr A,B A,X:(R0)+
+				// 2E5: mpy Y0,X0,A X:(R2+$C),X0
+				// 2E7: max Y1,X0,A X:(R2+$9),X0
+				// 2E9: macr X1,X0,A X:(R2+$6),X0
+				// 2EB: add X0,A B,Y0
+				// 2EC: move A,X:(R0)-
+				// 2ED: move (R0)-
+				mem[R0++] = xcoord * mem[R2+13] + ycoord * mem[R2+10] + zcoord * mem[R2+7] + mem[R2+4];
+				mem[R0++] = xcoord * mem[R2+14] + ycoord * mem[R2+11] + zcoord * mem[R2+8] + mem[R2+5];
+				mem[R0--] = xcoord * mem[R2+15] + ycoord * mem[R2+12] + zcoord * mem[R2+9] + mem[R2+6];
+				R0--;
+				
+				// 2EE: move X:(R0)-,Y1
+				Y1 = mem[R0--]; // Y1 = mem[317] = FFCE
+				
+				// 2EF: move A,X0
+				// 2F0: move R0,R2
+				X0 = A; // X0 = 01DD
+				R2 = R0; // R2 = 0316
+				
+				// 2F1: jsr >$65F
+				call_65F();
+				
+				// 2F3: move B0,X:(R2+$0)
+				mem[R2] = B0; // mem[316] = 0
+				
+				// 2F5: tst B
+				// 2F6: jseq >$675
+				if (B == 0)
+					call_675();
+				
+				// 2F8: move #>$6,N2
+				N2 = 6;
+
+				// 2FA: move A0,X:(R2+$4)
+				// 2FC: move B0,X:(R2+$5)
+				mem[R2 + 4] = A0; // mem[31A] = 26CB
+				mem[R2 + 5] = B0; // mem[31B] = 0000
+				
+				// 2FE: lea (R2)+N2,R0
+				// 2FF: move N1,R2
+				// 300: move #>$4,N2
+				// 302: nop
+				// 303: move (R2)+N2
+				R0 = R2 + N2; // R0 = 31C
+				N2 = 4;
+				R2 = N1 + 4; // R2 = 9672
+			}
+
+			// 304: bra <*+$6
+			
+
+			// 30A: move X:>$15C,R0
+			// 30C: nop
+			// 30D: move X:(R0)+,X1
+			R0 = mem[0x15C]; // R0 = 96CB
+			X1 = mem[R0++]; // X1 = 0000, R0 = FFCF
+			
+			// 30E: do X1,*+$318
+			for (u16 lc = X1; lc > 0; lc--)
+			{	// 310: move X:(R0)+,R1
+				// 311: move R0,X:>$15C
+				R1 = mem[R0++]; // R1 = mem[96CC] = 9711
+				mem[0x15C] = R0; // mem[15C] = 96CD
+				
+				// 313: move X:(R1)+,X0
+				// 314: move X0,X:>$310
+				// 316: move X:(R1)+,X0
+				// 317: move X0,X:>$311
+				mem[0x310] = mem[R1++]; // mem[310] = 000C, R1 = 9712
+				mem[0x311] = mem[R1++]; // mem[311] = 0004, R1 = 9713
+				
+				// 319: move #>$316,A
+				// 31B: tfr A,B X:(R1)+,X1
+				A = 0x316;
+				B = 0x316;
+				X1 = mem[R1++]; // X1 = mem[9713] = 0006, R1 = 9714
+				
+				// 31C: move #<+$6,X0
+				// 31D: imac X1,X0,A
+				// 31E: move A,R2
+				// 31F: move A,X:>$170
+				// 321: move #>$15E,R3
+				R2 = A += X1 * 6; // A += 36, A = 0x33A
+				mem[0x170] = R2;
+				u16 *dst = &mem[0x15E];
+				
+				// 323: do #<$6,*+$4
+				// 325: move X:(R2)+,X1
+				// 326: move X1,X:(R3)+
+				memcpy(dst, &mem[0x316 + X1 * 6], 6);
+				dst += 6;
+				// 33A, 33B, 33C, 33D, 33E, 33F
+				// 15E+ = 0000, 0064, FF97, 01DD, 0C91, 0000
+				
+				// 327: tfr B,A X:(R1)+,X1
+				// 328: imac X1,X0,B
+				// 329: move B,R2
+				B = A;
+				X1 = mem[R1++]; // X1 = mem[9714] = 2				
+				R2 = B += 6 * X1; // R2 = B = 316 + 2 * 6 = 322
+				
+				// 32A: do #<$6,+*$4
+				// 32C: move X:(R2)+,X1
+				// 32D: move X1,X:(R3)+
+				memcpy(dst, &mem[0x316 + X1 * 6], 6);
+				dst += 6;
+				// 322, 323, 324, 325, 326, 327
+				// 164+ = 0000, 0000, FFC9, 01E2, 0000, 0000
+				
+				// 32E: move X:(R1)-,X1
+				// 32F: imac X1,X0,A
+				// 330: move A,R2
+				X1 = mem[R1--]; // X1 = mem[9715] = 3
+				R2 = A += 6 * mem[R1--];
+				
+				// 331: do #<$6,*+$4
+				// 333: move X:(R2)+,X1
+				// 334: move X1,X:(R3)+
+				memcpy(dst, &mem[0x316 + X1 * 6], 6);
+				// 328, 329, 32A, 32B, 32C, 32D
+				// 16A+ = 0000, 0000, FFB0, 01DF, 0000, 0000
+				
+				// 335: move #>$15E,R2
+				// 337: move #>$2F8,R3
+				// 339: move X:(R2+$D),A
+				// 33B: move X:(R2+$7),X0
+				R2 = 0x15E;
+				R3 = 0x2F8;
+				
+				// 33D: sub X0,A X:(R2+$8),Y0
+				// 33F: tfr X0,B X:(R2+$1),X0
+				// 341: sub X0,B A,X:(R3)+
+				// 342: move B,X:(R3)+
+				// 343: move X:(R2+$E),A				
+				// 345: sub Y0,A X:(R2+$9),X0
+				// 347: tfr Y0,B X:(R2+$2),Y0
+				// 349: sub Y0,B A,X:(R3)+
+				// 34A: move B,X:(R3)+
+				// 34B: move X:(R2+$F),A
+				// 34D: sub X0,A
+				// 34E: tfr X0,B X:(R2+$3),X0
+				// 350: sub X0,B A,X:(R3)+
+				// 351: move B,X:(R3)+
+				mem[0x2F8 + 0] = mem[0x15E + 13] - mem[0x15E + 7]; // mem[2F8] = 0000 - 0000 = 0000
+				mem[0x2F8 + 1] = mem[0x15E +  7] - mem[0x15E + 1]; // mem[2F9] = 0000 - 0064 = FF9C
+				mem[0x2F8 + 2] = mem[0x15E + 14] - mem[0x15E + 8]; // mem[2FA] = FFB0 - FFC9 = FFE7
+				mem[0x2F8 + 3] = mem[0x15E +  8] - mem[0x15E + 2]; // mem[2FB] = FFC9 - FF97 = 0032
+				mem[0x2F8 + 4] = mem[0x15E + 15] - mem[0x15E + 9]; // mem[2FC] = 01DF - 01E2 = FFFD
+				mem[0x2F8 + 5] = mem[0x15E +  9] - mem[0x15E + 3]; // mem[2FD] = 01E2 - 01DD = 0005
+				
+				// 352: move #>$2F8,R2
+				// 354: move #>$305,R3
+				// 356: move X:(R2+$5),X1
+				// 358: move X:(R2+$2),Y0
+				// 35A: mpy Y0,X1,A X:(R2+$3),Y1
+				// 35C: neg A X:(R2+$4),X0
+				// 35E: mac Y1,X0,A X:(R2+$1),Y1
+				// 360: move A1,X:(R3)+
+				// 361: move A0,X:(R3)+
+				// 362: mpy Y1,X0,A
+				// 363: neg A X:(R2+$0),Y0
+				// 365: mac Y0,X1,A X:(R2+$3),X1
+				// 367: move A1,X:(R3)+
+				// 368: move A0,X:(R3)+
+				// 369: mpy Y0,X1,A
+				// 36A: neg A X:(R2+$2),X0
+				// 36C: mac Y1,X0,A
+				// 36D: move A1,X:(R3)+
+				// 36E: move A0,X:(R3)+
+				A = mem[0x2F8+3] * mem[0x2F8+4] - mem[0x2F8+5] * mem[0x2F8+2]; // A = FF FFFF FFCE
+				mem[0x305+0] = (u16)(A >> 16);
+				mem[0x305+1] = (u16)A;
+				
+				A = mem[0x2F8+0] * mem[0x2F8+5] - mem[0x2F8+1] * mem[0x2F8+4]; // A = FF FFFF FDA8
+				mem[0x305+2] = (u16)(A >> 16);
+				mem[0x305+3] = (u16)A;
+				
+				A = mem[0x2F8+1] * mem[0x2F8+2] - mem[0x2F8+0] * mem[0x2F8+3]; // A = 00 0000 1388
+				mem[0x305+4] = (u16)(A >> 16);
+				mem[0x305+5] = (u16)A;
+				
+				// 36F: move #>$305,R3
+				// 371: clr A
+				A = 0;
+				
+				// 372: move X:(R3)+,B
+				// 373: move X:(R3)+,B0
+				// 374: tfr2 B,X
+				// 375: cmpm A,B
+				// 376: tcc B,A
+				// 377: abs A X:(R3)+,B
+				// 378: move X:(R3)+,B0
+				// 379: tfr2 B,Y
+				// 37A: cmpm A,B
+				// 37B: tcc B,A
+				// 37C: abs A X:(R3)+,B
+				// 37D: move X:(R3)+,B0
+				// 37E: move B,N1
+				// 37F: move B0,N0
+				// 380: cmpm A,B
+				// 381: tcc B,A
+				// 382: abs A
+				X = B = mem32[0x305];
+				if (abs(B) > abs(A))
+					A = abs(B);
+				Y = B = mem32[0x307];
+				if (abs(B) > abs(A))
+					A = abs(B);
+				N10 = B = mem32[0x309];
+				if (abs(B) > abs(A))
+					A = abs(B);
+				
+				// 383: beq >*+$2A0
+				if (A != 0)
+				{	// 385: do forever,*+$11
+					while (!(A1 & 0xF800))
+					{	// 387: bftstl #$F800,A1
+						// 389: brkcc
+						// 38A: asl4 A
+						// 38B: tfr X,B
+						// 38C: asl4 B
+						// 38D: tfr2 B,X
+						// 38E: tfr Y,B
+						// 38F: asl4 B
+						// 390: tfr2 B,Y
+						// 391: move N1,B
+						// 392: move N0,B0
+						// 393: asl4 B
+						// 394: move B,N1
+						// 395: move B0,N0
+						A <<= 4;
+						X <<= 4;
+						Y <<= 4;
+						N10 <<= 4;
+					}
+					// Ends up with:
+					// A = 00 1388 0000
+					// B = 00 1388 0000
+					// X = FFCE 0000
+					// Y = FDA8 0000
+					// N10 = 1388 0000
+					
+					// 396: do forever,*+$11
+					while (!(A1 & 0xE000))
+					{	// 398: bftstl #$E000,A1
+						// 39A: brkcc
+						// 39B: asl A
+						// 39C: tfr X,B
+						// 39D: asl B
+						// 39E: tfr2 B,X
+						// 39F: tfr Y,B
+						// 3A0: asl B
+						// 3A1: tfr2 B,Y
+						// 3A2: move N1,B
+						// 3A3: move N0,B0
+						// 3A4: asl B
+						// 3A5: move B,N1
+						// 3A6: move B0,N0
+						A <<= 1;
+						X <<= 1;
+						Y <<= 1;
+						N10 <<= 1;
+					}
+					// Ends up with:
+					// A = 00 2710 0000
+					// B = 00 2710 0000
+					// X = FF9C 0000
+					// Y = FB50 0000
+					// N10 = 2710 0000
+					
+					// 3A7: move #>$30B,R3
+					// 3A9: move #>$302,R2
+					// 3AB: move X1,X:(R3)+
+					// 3AC: move Y1,X:(R3)+
+					// 3AD: move N1,X:(R3)-
+					// 3AE: move X1,X0
+					// 3AF: mpy X0,X0,B (R3)-
+					// 3B0: move Y1,X0
+					// 3B1: mac X0,X0,B
+					// 3B2: move N1,X0
+					// 3B3: macr X0,X0,B A,X1
+					mem[0x30B] = X1; // mem[30B] = FF9C
+					mem[0x30C] = Y1; // mem[30C] = FB50
+					mem[0x30D] = N1; // mem[30D] = 2710
+					B = N1 * N1 + Y1 * Y1 + X1 * X1;
+					X1 = A1;
+					
+					// 3B4: move #>$6EDA,Y0
+					// 3B6: mpy A1,Y0,B B,Y0
+					// 3B7: asl B
+					// 3B8: move B,A ; 28A4
+					B = A1 * 0x6EDA; // B = 21D4 4740, Y0 = 0c18
+					B <<= 1; // B = 43A8 8E80
+					A = B; // A = 43A8 8E80
+					
+					// 3B9: do #<$10,*+$C
+					for (u16 lc2 = 0x10; lc2 > 0; lc2--)
+					{	// 3BB: add X1,A
+						// 3BC: asr A
+						// 3BD: clr A A,X0
+						// 3BE: macr X0,X0,A
+						A += X1; // A += 2710, A = 00 6AB8 8E80
+						A >>= 1; // A = 00 355C 4740
+						X0 = A1; // X0 = 355C
+						A = round(X0 * X0); // A = 00 163E 0000
+						
+						// 3BF: cmp Y0,A // 0C18 vs. 163E
+						// 3C0: brkeq
+						if (Y0 == A)
+							break;
+						
+						// 3C1: tcc X0,B
+						// 3C2: bcc <*+$2
+						// 3C3: move X0,X1
+						if (Y0 < A)
+							B = X0;
+						else
+							X1 = X0;
+						
+						// 3C4: move B,A
+						A = B;
+					}
+					
+					// 3C5: move X:(R3)+,A
+					// 3C6: abs A A,B
+					A = mem[R3++]; // A = mem[30B], A = FF9C
+					B = A;
+					A = abs(A);
+					
+					// 3C7: tst B
+					// 3C8: andi #$FE,CCR
+					// 3C9: rep #$10
+					// 3CA: div X0,A
+					// 3CB: bpl <*+$2
+					// 3CC: neg A
+					A /= X0; // 2758
+					if (B < 0)
+						A = -A; // A0 = FEBB
+					
+					// 3CD: move A0,X:(R2)+
+					mem[R2++] = A0; // mem[302] = FEBB
+					
+					// 3CE: move X:(R3)+,A
+					// 3CF: abs A A,B
+					A = mem[R3++]; // A1 = mem[30C], FB50					
+					B = A;
+					A = abs(A);
+					
+					// 3D0: tst B
+					// 3D1: andi #$FE,CCR
+					// 3D2: rep #$10
+					// 3D3: div X0,A
+					// 3D4: bpl <*+$2
+					// 3D5: neg A
+					A /= X0;
+					if (B < 0)
+						A = -A; // A0 = F0C0
+					
+					// 3D6: move A0,X:(R2)+
+					mem[R2++] = A0; // mem[303] = F0C0
+					
+					// 3D7: move X:(R3)+,A
+					// 3D8: abs A A,B
+					A = mem[R3++]; // A1 = mem[30D], 2710
+					B = A;
+					A = abs(A);
+					
+					// 3D9: tst B
+					// 3DA: andi #$FE,CCR
+					// 3DB: rep #$10
+					// 3DC: div X0,A
+					// 3DD: bpl <*+$2
+					// 3DE: neg A
+					A /= X0; // A0 = 7F15
+					if (B < 0)
+						A = -A;
+					
+					// 3DF: move A0,X:(R2)+
+					mem[R2++] = A0; // mem[304] = 7F15
+					
+					// 3E0: move #>$15F,R2
+					// 3E2: move #>$302,R3
+					// 3E4: clr A
+					R2 = 0x15F;
+					R3 = 0x302;
+					A = 0;
+					
+					// 3E5: move X:(R2)+,Y0 X:(R3)+,X0
+					Y0 = mem[R2++]; // Y0 = 0064, FF97, 01DD, 0C91, F2CD, 0000, 0000, FFC9
+					X0 = mem[R3++]; // X0 = FEBB, F0C0, 7F15, FFFF, FFCE, FFFF, FDA8, 0000
+					
+					// 3E6: mpy Y0,X0,A X:(R2)+,Y0 X:(R3)+,X0
+					// 3E7: mac Y0,X0,A X:(R2)+,Y0 X:(R3)+,X0
+					// 3E8: mac Y0,X0,A
+					A  = X0 * Y0; // A  = 0064 * FEBB,  = FF FFFF 0218
+					Y0 = mem[R2++];
+					X0 = mem[R3++];
+					A += X0 * Y0; // A += FF97 * F0C0, += 00 000C 8280, = 00 000B 8498
+					Y0 = mem[R2++];
+					X0 = mem[R3++];
+					A += X0 * Y0; // A += 01DD * 7F15, += 00 01D9 9442, = 00 01E5 18DA
+					
+					// 3E9: bmi >*+$23A
+					if (A > 0)
+					{	// 3EB: move R1,X:>$15D
+						mem[0x15D] = R1; // = 9714
+						
+						// 3ED: move (R1)-
+						// 3EE: move #>$316,A
+						// 3F0: move #>$174,R3
+						// 3F2: move X:>$311,Y1
+						// 3F4: move move Y1,X:(R3)+
+						R1--; // = 9713
+						A = 0x316; // = 00 0316 0000
+						R3 = 0x174;
+						mem[R3++] = mem[0x311]; // = 0004
+						
+						// 3F5: #<+$6,X1
+						X1 = 6
+						
+						// 3F6: do Y1,*+$13
+						u16 lc2 = Y1;
+						for (; lc2 > 0; lc2--)
+						{	// 3F8: tfr A,B X:(R1)+,X0
+							B = A;
+							X0 = mem[R1++]; // X0 = 0006, R1 = 9714
+							
+							// 3F9: imac X1,X0,B
+							// 3FA: move B,R2
+							// 3FB: nop
+							R2 = X1 * X0; // R2 = B += 6 * 6 = 00 033A 0000
+							
+							// 3FC: move X:(R2+$0),B
+							// 3FE: tst B X:(R2+$4),X0
+							// 400: beq <*+$5
+							X0 = mem[R2 + 4]; // X0 = 0C91
+							B = mem[R2];
+							if (B == 0)
+							{	// 401: enddo
+								// 402: move X:>$15D,R1
+								// 404: bra <*+$D
+								lc2 = 0;
+								R1 = mem[0x15D]; // = 9714
+							}
+							else
+							{	// 405: move X0,X:(R3)+
+								// 406: move X:(R2+$5),X0
+								// 408: move X0,X:(R3)+
+								mem[R3++] = X0; // mem[175] = 0C91
+								mem[R3++] = mem[R2 + 5]; // mem[176] = mem[33F] (F2CD)
+							}
+						}
+						
+						if (lc2 == 0)
+						{	// 409: move #>$175,R2
+							// 40B: do Y1,*+$6
+							for (lc2 = Y1; lc2 > 0; lc2--)
+							{	// 40D: move X:(R2)+,X0
+								// 40E: move X0,X:(R3)+
+								// 40F: move X:(R2)+,X0
+								// 410: move X0,X:(R3)+
+								mem[R3++] = mem[R2++];
+								mem[R3++] = mem[R2++];
+							}
+						}
+						
+						// 411: tst B
+						// 412: beq >*+$140
+						if (B != 0)
+						{	// 414: move #>$15E,R2
+							// 416: move #>$174,R3
+							// 418: move #>$FFFF,X1
+							R2 = 0x15E;
+							R3 = 0x174;
+							
+							// 41A: move X1,X:(R3)
+							// 41B: move X:>$311,X1
+							mem[0x15E] = 0xFFFF;
+							X1 = vertexCount; // X1 = mem[311], 6
+							
+							// 41D: do X1,*+$90
+							for (lc2 = vertexCount; lc2 > 0; lc2--)
+							{	// 41F: move X:(R2+$0),X0
+								// 421: move X:(R2+$6),B
+								X0 = mem[R2+0]; // X0 = mem[15E], 0000
+								B = mem[R2+6]; // B = mem[164], 0000
+								
+								// 423: eor X0,B B,Y0
+								Y0 = B;
+								B ^= X0;
+
+								// 424: bftstl #$1,B
+								// 426: bcs >*+$4E
+								if (B & 1)
+								{	// 428: jsr >$69F
+									call_69f();
+									
+									// 42A: 
+								}
+								
+								// 474: bftstl #$1,Y0
+								// 476: bcc <*+$11
+								if (!(Y0 & 1))
+								{	// 477: move Y0,X:(R3)+
+									mem[R3++] = Y0; // mem[0174] = 0
+									
+									// 478: move X:(R2+$7),Y0
+									// 47A: move Y0,X:(R3)+
+									// 47B: move X:(R2+$8),Y0
+									// 47D: move Y0,X:(R3)+
+									// 47E: move X:(R2+$9),Y0
+									// 480: move Y0,X:(R3)+
+									// 481: move X:(R2+$A),Y0
+									// 483: move Y0,X:(R3)+
+									// 484: move X:(R2+$B),Y0
+									// 486: move Y0,X:(R3)+
+									mem[R3++] = mem[R2+7]; // mem[0175] = 0121
+									mem[R3++] = mem[R2+8]; // mem[0176] = FF82
+									mem[R3++] = mem[R2+9]; // mem[0177] = 0125
+									mem[R3++] = mem[R2+10]; // mem[0178] = 3B22
+									mem[R3++] = mem[R2+11]; // mem[0179] = E637
+								}
+								
+								// 487: move R3,X:>$171
+								mem[0x171] = R3; // mem[171] = 017A
+								
+								// 489: move #>$316,A
+								// 48B: move LC,B
+								// 48C: move #<+$1,X1
+								A = 0x316;
+								B = LC; // 6
+								
+								// 48D: cmp X1,B X:(R1)+,X1
+								// 48E: beq <*+$1D
+								X1 = mem[R1++];
+								if (B != 1)
+								{	// 48F: move #<+$6,X0
+									// 490: move A,Y0
+									Y0 = A; // Y0 = 316
+									
+									// 491: imac X1,X0,A
+									A = 6 * X1; // A += 6 * 14, 00 038E 0000
+									
+									// 492: move #>$15E,R3
+									// 494: do #<$6,*+$4
+									// 496: move X:(A1),X1
+									// 497: inc24 A X1,X:(R3)+
+									R3 = 0x15E;
+									for (u16 lc3 = 6; lc3 > 0; lc3--)
+										mem[R3++] = mem[A1++]; // mem[15E] = mem[38E], 0, FE, 72, 11D, 356E, 17FB
+									
+									// 498: move #<+$2,X1
+									// 499: cmp X1,B
+									// 49A: bne <*+$A
+									if (B != 2)
+									{	// 4A4: move Y0,A
+										// 4A5: move X:(R1),X1
+										// 4A6: imac X1,X0,A
+										// 4A7: do #<$6,*+$4
+										// 4A9: move X:(A1),X1
+										// 4AA: inc24 A X1,X:(R3)+
+										A += 6 * mem[R1]; // A = 0x316 + 6 * mem[9580], 0x316 + 6 * 0x13, 0x388
+										for (u16 lc3 = 6; lc3 > 0; lc3--)
+											mem[R3++] = mem[A1++]; // mem[164] = mem[388], 0, FE, 36, 11F, 350F, B47
+									}
+								}
+								
+								// 4AB: move X:>$171,R3
+								R3 = mem[0x171]; // R3 = 17A
+							}
+							
+							// R3 currently 0192
+							// 4AD: move #>$174,R2
+							// 4AF: move #>$FFFF,X1
+							// 4B1: move X:(R2+$0),Y0
+							// 4B3: move Y0,X:(R3)+
+							// 4B4: move X:(R2+$1),Y0
+							// 4B6: move Y0,X:(R3)+
+							// 4B7: move X:(R2+$2),Y0
+							// 4B9: move Y0,X:(R3)+
+							// 4BA: move X:(R2+$3),Y0
+							// 4BC: move Y0,X:(R3)+
+							// 4BD: move X:(R2+$4),Y0
+							// 4BF: move Y0,X:(R3)+
+							// 4C0: move X:(R2+$5),Y0
+							// 4C2: move Y0,X:(R3)+
+							// 4C3: move X1,X:(R3)+
+							R2 = 0x174;
+							mem[R3++] = mem[R2+0]; // mem[192] = mem[174], 0000
+							mem[R3++] = mem[R2+1]; // mem[193] = mem[175], FFAA
+							mem[R3++] = mem[R2+2]; // mem[194] = mem[176], FFC9
+							mem[R3++] = mem[R2+3]; // mem[195] = mem[177], 00A4
+							mem[R3++] = mem[R2+4]; // mem[196] = mem[178], F79C
+							mem[R3++] = mem[R2+5]; // mem[197] = mem[179], FAA2
+							mem[R3++] = 0xFFFF;    // mem[198] = FFFF
+							
+							// 4C4: move #>$234,R3
+							// 4C6: move #>$174,R2
+							// 4C8: move X1,X:(R3)
+							R3 = 0x234;
+							R2 = 0x174;
+							mem[0x234] = 0xFFFF;
+							
+							// 4C9: do forever, *+$34
+							while (true)
+							{	// 4CB: move X:(R2+$6),Y0
+								// 4CD: tfr Y0,A X:(R2+$0),X0
+								// 4CF: tst A
+								// 4D0: brkmi
+								A = Y0 = mem[R2+6]; // Y0 = 0220, A = 00 0220 0000
+								X0 = mem[R2+0]; // X0 = 0000
+								if (A < 0)
+									break;
+								
+								// 4D1: eor X0,A
+								// 4D2: bftstl #$300,A
+								// 4D4: bcs <*+$12
+								if ((A & 0x0300) != 0)
+								{	// 4D5: jsr >$69F
+									call_69F();
+									
+									// 4D7: bftstl #$300,X0
+									// 4D9: bcs <*+$8
+									if ((X0 & 0x0300) != 0)
+									{	// 4DA: jsr >$6BC
+										call_6BC();
+										
+										// 4DC: move X:(R2+$6),Y0
+										// 4DE: bftstl #$300,Y0
+										// 4E0: bcs <*+$9
+										if (mem[R2+6] & 0x0300) == 0)
+										{	// 4E9: 
+										}
+									}
+
+									// 4E1: move X:(R2+$6),X0
+									// 4E3: jsr >$6BC
+									// 4E5: bra <*+$14
+									X0 = mem[R2+6]; // X0 = 0220
+									call_6BC();
+								}
+								else
+								{	// 4E6: 
+								}
+								
+								// 4F9: 
+							}
+							
+							// 4FD
+						}
+
+						// TODO: transcribe code between 4E6 and 551
+						
+						// 552: move #>$174,R0
+						// 554: move X:>$2F6,R1
+						// 556: move X:(R0)+,X0
+						R0 = 0x174;
+						R1 = mem[0x2F6]; // R1 = 8000
+						X0 = mem[R0++]; // X0 = 0004, R0 = 0175
+						
+						// 557: tst2 X0
+						// 558: beq >*+$CB
+						if (X0 != 0)
+						{	// 55A: move X0,X:>$311
+							// 55C: move #>$310,R3
+							// 55E: nop
+							mem[0x311] = X0; // mem[311] = 0004
+							R3 = 0x310;
+							
+							// 55F: move X:(R3),B
+							// 560: tst B B,A
+							A = B = mem[R3]; // B = mem[310] (000C)
+							if (B < 0)
+							{	// 562: clr A
+								// 563: rol B
+								// 564: rol B
+								// 565: move X:>$15A,R3
+								// 567: rol B
+								// 568: rol A
+								// 569: rol B
+								// 56A: rol A
+								// 56B: rol B
+								// 56C: rol A
+								// 56D: rol B
+								// 56E: rol A
+								// 56F: move X:(R2+R3),B
+								// 571: lsr B A,X0
+								// 572: move X:(R3),A
+								// 573: move A0,X:(R3)
+								// 574: rep X0
+								// 575: lsr B
+								// 576: bcc <*+$5
+								// 577: bfset #$8000,X:(R3)
+								// 579: asr4 A
+								// 57A: asr A
+								A = 0;
+								
+							}
+							
+							// 57B: move #<+$1F,X0
+							// 57C: and X0,A
+							A &= 0x1F;
+							
+							// 57D: move A1,A
+							// 57E: move X:(R3),B
+							B = mem[R3]; // B = mem[310] (000C)
+							
+							// 57F: tst B
+							// 580: bmi <*+$15
+							if (B >= 0)
+							{	// 581: move X:>$2FE,R2
+								// 583: move #>$302,R3
+								// 585: move #>$129,X1
+								// 587: move X:(R2)+,Y1 X:(R3)+,X0
+								R2 = mem[0x2FE]; // R2 = mem[2FE] (0004)
+								R3 = 0x302;
+								X1 = 0x129;
+								Y1 = mem[R2++]; // Y1 = mem[004] (49E7)
+								X0 = mem[R3++]; // X0 = mem[302] (FEBB)
+								
+								// 588: mpy Y1,X0,B X:(R2)+,Y1 X:(R3)+,X0
+								// 589: mac Y1,X0,B X:(R2)+,Y1 X:(R3)+,X0
+								// 58A: mac Y1,X0,B
+								B  = X0 * Y1; // B  = 49E7 * FEBB = FF FF44 5B7A
+								Y1 = mem[R2]++; // Y1 = mem[005] = 49E7
+								X0 = mem[R3]++; // X0 = mem[303] = F0C0
+								B += X0 * Y1; // B += 49E7 * F0C0, += FF F731 FA80, = FF F676 55FA
+								Y1 = mem[R2]++; // Y1 = mem[006] = B619
+								X0 = mem[R3]++; // X0 = mem[304] = 7F15
+								B += X0 * Y1; // B += B619 * 7F15, += FF B6A0 AE1A, = FF AD17 0414
+								
+								// 58B: move B,B ; 28A5
+								// 58C: asr4 B
+								// 58D: asr4 B
+								// 58E: asr4 B
+								// 58F: asl B
+								B = (B >> 12) << 1; // 
+								B += X1; // B += 0129 0000, = 00 011E A2E0
+								
+								// 591: move B,R2
+								// 592: nop
+								R2 = B; // R2 = 011E
+								
+								// 593: move P:(R2),X0
+								X0 = pmem[R2]; // X0 = pmem[11E] = 0F04
+								// 594: bra <*+$3
+							}
+							else
+							{	// 595: move #>$F80,X0
+								X0 = 0xF80;
+							}
+							
+							// 597: move X:>$15B,B
+							// 599: bfclr #$FF00,B
+							B = mem[0x15B] & 0x00FF; // B = 00 000D 0000
+							
+							// 59B: asl4 B
+							// 59C: asl B
+							// 59D: bfclr #$1000,B
+							bool b12_set(B & 0x1000);
+							B = (B << 5) & 0x0fff; // B = 00 01A0 0000
+							
+							// 59F: move A,X1
+							X1 = A; // X1 = 000C
+							
+							// 5A0: bcc >*+$6
+							if (!b12_set)
+							{	// 5A2: move X:>$156,Y1
+								// 5A4: mpy Y1,X0,A
+								// 5A5: move A,X0
+								A = mem[0x156] * X0; // A = (7FFF * 0F04) << 1, 0F03 E1F8
+								X0 = A; // X0 = 0F03
+							}
+							
+							// 5A6: add X1,B
+							// 5A7: asl B
+							// 5A8: move #>$2C00,X1
+							// 5AA: add X1,B
+							B = ((B + X1) << 1) + 0x2C00; // B = 00 2F58 0000							
+							
+							// 5AB: move X:(B1),Y1
+							// 5AC: inc24 B
+							// 5AD: move X:(B1),Y0
+							// 5AE: bfclr #$FF00,Y1
+							Y1 = mem[B1++] & 0x00FF; // Y1 = mem[2F58], 00A9							
+							Y0 = mem[B1++]; // Y1 = mem[2F59], B1AE
+							
+							// 5B0: mpyuu Y1,X0,B
+							// 5B1: move B,B
+							// 5B2: asl4 B
+							// 5B3: asl4 B
+							// 5B4: asl B
+							// 5B5: asl B
+							B = (Y1 * X0) << 10; // B = 00A9 * 0F03 = 00 4F47 D800
+							
+							// 5B6: move Y0,Y1
+							// 5B7: bfclr #$FF,Y0
+							// 5B9: mpyuu Y0,X0,A
+							// 5BA: asr4 A
+							// 5BB: asl A
+							// 5BC: bfclr #$1F,A
+							// 5BE: add A,B
+							Y1 = Y0; // Y1 = B1AE
+							Y0 &= 0xff00; // Y1 = B100
+							A = ((((Y0 & 0xFF00) * X0) >> 4) << 1) & 0x1FFFFF; // A = 00 0280 44C0
+							B += A; // B = 00 51C8 1CC0
+							
+							// 5BF: bfclr #$FF00,Y1
+							// 5C1: mpyuu Y1,X0,A
+							// 5C2: bfclr #$FF00,A
+							// 5C4: bfclr #$E0,A
+							// 5C6: add A,B
+							// 5C7: move #>$421,A
+							// 5C9: add A,B
+							B += ((Y1 & 0x00FF) * 0F03) & 0x1F; // B += ((00AE * 0F03) << 1), 00 0014 6814, 00 51DC 84D4
+							B += 0x04210000; // B = 00 55FD 84D4
+							
+							// 5CA: move X:>$2F7,R2
+							// 5CC: bfset #$2,X:<<$FFE3
+							// 5CE: move B,X:(R2)+
+							// 5CF: move R1,X:(R2)+
+							// 5D0: move R2,X:>$2F7
+							// 5D2: move X:>$2F5,R3
+							// 5D4: move #>$8000,A
+							// 5D6: move #>$7FFF,B
+							// 5D8: move X:>$311,X0
+							PCD |= RAM_BANK_GROUP_B;
+							mem[mem[0x2F7]++] = B; // Store color
+							mem[mem[0x2F7]++] = R1; // Store B8 table address
+							R3 = mem[0x2F5]; // R1 = 6xxx
+							s16 maxVal = INT_MIN;
+							s16 minVal = INT_MAX;
+							X0 = mem[0x311]; // X0 = 4
+							
+							// 05DA: do X0,*+$7
+							for (u16 lc2 = X0; lc2 > 0; lc2--)
+							{	// 5DC: move X:(R0)+,Y0
+								// 5DD: cmp Y0,A X:(R0)+,X1
+								// 5DE: tlt Y0,A R0,R2
+								// 5DF: cmp Y0,B
+								// 5E0: tgt Y0,B
+								Y0 = mem[R0++]; // mem[0175], 0C91, 0000, 0000, 0648
+								X1 = mem[R0++]; // mem[0176], F2CD, F928, F5FC, F2CD
+								R2 = R0;
+								maxVal = max(maxVal, Y0);
+								minVal = min(minVal, Y0);
+							}
+							// Range: 0C91, 0000
+							
+							// 5E1: move B,X:>$2F4
+							// 5E3: neg A (R2)-
+							// 5E4: neg B (R2)-
+							// 5E5: move A,X:(R3)+
+							// 5E6: move B,X:(R3)+
+							// 5E7: move R3,X:>$2F5
+							mem[0x2F4] = minVal; // mem[2F4] = 0000
+							R2 -= 2;
+							mem[mem[0x2F5]++] = 0 - maxVal;
+							mem[mem[0x2F5]++] = 0 - minVal;
+							
+							// 5E9: move X:>$311,B
+							// 5EB: asl B
+							// 5EC: move B,N2
+							// 5ED: bfclr #$1,X:<<$FFE3							
+							// 5EF: lea (R2)+N2,R3
+							// 5F0: move X:>$2F4,X0
+							// 5F2: move #>$FFFF,N2
+							PCD &= ~(1 << 0);
+							R3 = R2 + vertCount * 2; // R3 = 0175 + mem[311] * 2 = 017D
+							X0 = mem[0x2F4]; // X0 = 0
+							N2 = 0xFFFF;
+							
+							// 5F4: do forever,*+$12
+							while (true)
+							{	// 5F6: move X:(R2)+,A
+								// 5F7: cmp X0,A X:(R2)+,Y0
+								// 5F8: brkeq
+								A = mem[R2++]; // A = mem[175], 0C91
+								yCoord = mem[R2++]; // Y0 = mem[176], F2CD
+								if (A == X0)
+									break;
+								
+								// 5F9: neg A A,X1
+								// 5FA: asr A X:(R2)+,B
+								// 5FB: asr4 A
+								// 5FC: neg B X:(R2)+N2,Y1
+								// 5FD: asr B A,X0
+								// 5FE: asr4 B
+								// 5FF: sub X0,B Y1,A
+								// 600: bslt >*-$48C
+								// 602: bsgt >*-$4C9
+								X1 = A;
+								B = mem[R2++]; // B = mem[177], 0
+								Y1 = mem[R2 + 8]; // Y1 = F928
+								X0 = (0 - A) >> 5; // X0 = FF9B
+								B = (0 - B) >> 5; // B = 00 0000 0000
+								bool B_lt_X0 = (B < minVal);
+								bool B_gt_X0 = (B > minVal);
+								B -= minVal;
+								if (B_lt_X0)
+									call_174(yCoord);
+								if (B_gt_X0)
+									call_139(yCoord);
+								
+								// 604: move X:>$2F4,X0
+								X0 = mem[0x2F4];
+							}
+							
+							// 606: move X:>$2F6,R1
+							// 608: bfset #$1,X:<<$FFE3
+							// 60A: move #>$FFFD,N3
+							R1 = mem[0x2F6]; // R1 = 8000
+							PCD |= (1 << 0);
+							N3 = 0xFFFD;
+							
+							// 60C: do forever, *+$13
+							while (true)
+							{	// 60E: move X:(R3)+,A
+								// 60F: cmp X0,A X:(R3)+N3,Y0
+								// 610: brkeq
+								A = mem[R3++]; // A = mem[17D], 0C91
+								Y0 = mem[R3 - 3]; // Y0 = mem[17B], F2CD
+								if (A == X0)
+									break;
+								
+								// 611: neg A A,X1
+								// 612: asr A X:(R3)+,B
+								// 613: asr4 A
+								// 614: move X:(R3)-,Y1
+								// 615: neg B A,X0
+								// 616: asr B Y1,A
+								// 617: asr4 B
+								// 618: sub X0,B
+								// 619: bslt >*-$4A3
+								// 61B: bsgt >*-$4E2
+								X1 = A;
+								B = mem[R3++]; // B = mem[17B], 0648
+								Y1 = mem[R3--]; // Y1 = mem[17C], F2CD
+								X0 = (0 - A) >> 5; // X0 = FF9B
+								B = (0 - B) >> 5; // B = FF FFCD C000
+								bool B_lt_X0 = (B < X0);
+								bool B_gt_X0 = (B > X0);
+								B -= X0;
+								if (B_lt_X0)
+									call_176();
+								if (B_gt_X0)
+									call_139();
+								
+								// 61D: move X:>$2F4,X0
+								X0 = mem[0x2F4]; // X0 = 0, minVal
+							}
+							
+							// 61F: move R1,X:>$2F6
+							// 621: bfclr #$2,X:<<$FFE3
+							mem[0x2F6] = R1; // mem[2F6] = 8065, save current 8xxx pointer
+						}
+					}
+				}
+				
+				// 623: move X:>$15C,R0
+				// 625: nop
+			}
+			
+			// 626: move X:>$15A,R0
+			R0 = mem[0x15A]; // R0 = 6010
+		}
+		
+		label_628:
+		// 628: move #>$10,N0
+		// 62A: nop
+		// 62B: move (R0)+N0
+		R0 += 0x10; // R0 = 0x6020
+
+		// 62D
+		// move #>$FFFF,X1
+		// cmp X1,A
+		// brkeq
+		if (A == 0xFFFF)
+			break;
+		
+		// 631
+	}
+
+	// 632
+	// bsr >*-$4CB
+	call_167();
+
+	// move X:>$2F5,X0
+	// move X0,X:>$314
+	// move X:>$2F6,X0
+	// move X0,X:>$315
+	mem[0x314] = mem[0x2F5];
+	mem[0x315] = mem[0x2F6];
+	
+	// move #>$FFC4,R0
+	// nop
+	// bfclr #$8,X:(R0)
+	HCR &= ~HF2;
+}
+
+void call_643()
+{	// 643
+	// bsr >*-$4DC
+	// move X:>$2F5,X0
+	// move X0,X:>$312
+	// move X:>$2F6,X0
+	// move X0,X:>$313
+	// bsr >*+$5
+	// bfset #$100,X:<<$FFE3
+	call_167();
+	mem[0x312] = mem[0x2F5];
+	mem[0x313] = mem[0x2F6];
+	call_652();
+	PCD |= (1 << 8);
+}
+
+void call_652()
+{	// 652
+	// move #>$6000,X1
+	// move X1.X:>$2F5
+	// move #>$8000,X1
+	// move X1.X:>$2F6
+	// move #>$7000,X1
+	// move X1,X:>$2F7
+	mem[0x2F5] = 0x6000;
+	mem[0x2F6] = 0x8000;
+	mem[0x2F7] = 0x7000;
+}
+
+void call_65F()
+{	// 65F: clr B X0,A
+	u16 B = 0;
+	u16 A = X0; // A = 01DD
+	
+	// 660: cmpm Y1,A
+	// 661: bge <*+$5
+	if (Y1 < 0 || A < 0)
+	{
+		// 662: tst2 Y1
+		// 663: bpl <*+$2
+		// 664: inc B
+		// 665: inc B
+		if (Y < 0)
+			B++;
+		B++;
+	}
+	
+	// 666: asl4 B
+	// 667: inc24 A
+	// 668: asr A
+	// 669: add X0,A
+	B <<= 4;
+	A = ((A + 1) >> 1) + X0;
+	
+	// 66A: cmpm Y0,A
+	// 66B: bge <*+$5
+	if (Y0 < 0 || A < 0)
+	{	// 66C: tst2 Y0
+		// 66D: bpl <*+$2
+		// 66E: inc B
+		// 66F: inc B
+		if (Y0 < 0)
+			B++;
+		B++;
+	}
+	
+	// 670: asl4 B
+	// 671: tst2 X0
+	// 672: bpl <*+$2
+	// 673: inc B
+	if (X0 < 0)
+		B++;
+	
+	// 674: rts
+}
+
+void call_675()
+{	// 675: move X:>$155,A
+	// 677: asr16 A
+	// 678: div X0,A
+	// 679: div X0,A
+	// 67A: div X0,A
+	// 67B: div X0,A
+	// 67C: div X0,A
+	// 67D: div X0,A
+	// 67E: div X0,A
+	// 67F: div X0,A
+	// 680: div X0,A
+	// 681: div X0,A
+	// 682: div X0,A
+	// 683: div X0,A
+	// 684: div X0,A
+	// 685: div X0,A
+	// 686: div X0,A
+	// 687: div X0,A
+	// 688: rnd A A0,X1
+	// 689: div X0,A
+	// 68A: div X0,A
+	// 68B: div X0,A
+	// 68C: div X0,A
+	// 68D: div X0,A
+	// 68E: div X0,A
+	// 68F: div X0,A
+	// 690: div X0,A
+	// 691: div X0,A
+	// 692: div X0,A
+	// 693: div X0,A
+	// 694: div X0,A
+	// 695: div X0,A
+	// 696: div X0,A
+	// 697: div X0,A
+	// 698: div X0,A
+	// 699: move A0,X0
+	// 69A: mpysu Y1,X0,A
+	// 69B: dmacss X1,Y1,A
+	// 69C: mpysu Y0,X0,B
+	// 69D: dmacss X1,Y0,B
+	// TODO: Transcribe into pseudocode
+
+	// 69E: rts
+}
+
+void call_69f()
+{	// 69F: move R1,X:>$15D
+	// 6A1: move R2,X:>$172
+	// 6A3: move R3,X:>$171
+	// 6A5: move #>$7,N2
+	// 6A7: move R2,R3
+	// 6A8: move (R2)+N2
+	// 6A9: lea (R3)+,R3
+	mem[0x172] = R2;
+	mem[0x171] = R3;
+	R3 = R2 + 1; // R3 = 175
+	R2 += 7;     // R2 = 17B
+	
+	// 6AA: move #>$2F8,R1
+	// 6AC: move Y0,Y1
+	// 6AD: move X:(R2)+,B X:(R3)+,Y0
+	// 6AE: sub Y0,B A,X1
+	// 6AF: move X:(R2)+,A X:(R3)+,Y0
+	// 6B0: sub Y0,A B,X:(R1)+
+	// 6B1: move X:(R2)+,A X:(R3)+,Y0
+	// 6B2: sub Y0,B A,X:(R1)+
+	// 6B3: tfr X1,A B,X:(R1)+
+	mem[0x2F8] = mem[R2++] - mem[R3++]; // FF FF5E 0000 - FFAA, FF FFB4 0000, mem[2F8] = FFB4
+	mem[0x2F9] = mem[R2++] - mem[R3++]; // FF FF1E 0000 - FFC9, FF FF55 0000, mem[2F9] = FF55
+	mem[0x2FA] = mem[R2++] - mem[R3++]; // 00 0000 0000 - 00A4, FF FF5C 0000, mem[2FA] = FF5C
+	
+	// 6B4: move Y1,Y0
+	// 6B5: move X:>$171,R3
+	// 6B7: move X:>$172,R2
+	// 6B9: move X:>$15D,R1
+	R3 = mem[0x171];
+	R2 = mem[0x172];
+	
+	// 6BB: rts
+}
+
+void call_6BC()
+{	// 6BC: move X0,X:>$173
+	// 6BE: move X:>$2FA,B
+	// 6C0: move X:>$173,X1
+	X1 = X0; // X1 = 0220
+	B = mem[0x2FA]; // B = FF FF5C 0000
+	
+	// 6C2: bftsth #$200,X1
+	// 6C4: bcs <*+$2
+	// 6C5: neg B
+	if (!(X1 & 0x200))
+		B = -B;
+	
+	// 6C6: move X:>$2F8,X0
+	// 6C8: add X0,B X:(R2+$7),Y0
+	// 6CA: move X:(R2+$3),X0
+	Y0 = mem[R2+7]; // Y0 = mem[17B], FF5E
+	B += mem[0x2F8]; // B = FF FF5C 0000 + FFB4, FF FF10 0000
+	X0 = mem[R2+3]; // X0 = mem[177], 00A4
+	
+	// 6CC: mpy Y0,X0,A X:(R2+$1),Y0
+	A = mem[R2+3] * mem[R2+7]; // A = FF FFFF 3070
+	Y0 = mem[R2+1]; // Y0 = mem[175], FFAA
+	
+	// 6CE: move X:(R2+$9),X0
+	// 6D0: mac -Y0,X0,A B,Y1
+	X0 = mem[R2+9]; // X0 = mem[17D], 0000
+	Y1 = B; // Y1 = FF10
+	A -= mem[R2+1] * mem[R2+9];
+	
+	// 6D1: abs A A,B
+	B1 = A1; // B = FF FFFF 0000
+	A = abs(A); // A = 00 0000 CF90
+	
+	// 6D2: eor Y1,B X:(R2+$2),Y0
+	Y0 = mem[R2+2]; // Y0 = FFC9
+	B ^= Y1; // B = FF 00EF 0000
+	
+	// 6D4: andi #$FE,CCR
+	// 6D5: rep #$10
+	// 6D6: div Y1,A
+	// 6D7: bpl <*+$2
+	// 6D8: neg A
+	A /= Y1;
+	if (A < 0)
+		A = 0 - A;
+	
+	// 6D9: tfr X0,A A0,X0
+	// 6DA: mpy A1,Y0,B X:(R2+$8),A
+	B = A * mem[R2+2]; // B = 00 0000 0000
+	A = mem[R2+8]; // A = FF FF1E 0000
+	
+	// 6DC: move X:(R2+$3),Y0
+	Y0 = mem[R2+3]; // 00A4
+	
+	// 6DE: mac -A1,Y0,B X:(R2+$1),Y0
+	// 6E0: bftsth #$200,X1
+	// 6E2: bcs <*+$2
+	// 6E3: neg B
+	B -= mem[R2+8] * mem[R2+3]; // B -= FF1E * 00A4, 00 0001 2190
+	Y0 = mem[R2+1];
+	if (!(X1 & 0x200)
+		B = 0 - B;
+	
+	// 6E4: mac -A1,Y0,B X:(R2+$7),A
+	// 6E6: move X:(R2+$2),Y0
+	// 6E8: mac A1,Y0,B
+	B -= mem[R2+8] * mem[R2+1]; // B -= FF1E * FFAA, 00 0000 89B8
+	A = mem[R2+7]; // A = FF FF5E 0000
+	Y0 = mem[R2+2]; // Y0 = FFC9
+	B += mem[R2+7] * mem[R2+2]; // B += FF5E * FFC9, 00 0000 CF54
+	
+	// 6E9: abs B B,A
+	// 6EA: eor Y1,A
+	// 6EB: andi #$FE,CCR
+	// 6EC: rep #$10
+	// 6ED: div Y1,B
+	// 6EE: bpl <*+$2
+	// 6EF: neg B
+	A = B ^ Y1; // A = 00 FF10 0000
+	B = abs(B) / Y1; // B = 00 0000 CF54
+	if (B < 0)
+		B = 0 - B;
+	
+	// B = FF FFDB FF92
+	// 6F0: tfr X0,A B0,Y0
+	// 6F1: bftsth #$100,X1
+	// 6F3: bcs <*+$2
+	// 6F4: neg A
+	A = X0; // A = 00 006E 0000
+	Y0 = B0; // Y0 = FF92
+	if (!(X1 & 0x100))
+		A = 0 - A; // A = FF FF92 0000
+	
+	// 6F5: move A,Y1
+	// 6F6: bsr >*+$97
+	Y1 = A; // Y1 = FF92
+	call_65F();
+	
+	// 6F8: move B0,X:(R3)+
+	// 6F9: move Y1,X:(R3)+
+	// 6FA: move Y0,X:(R3)+
+	// 6FB: move X0,X:(R3)+
+	mem[R3++] = B0; // 0000
+	mem[R3++] = Y1; // FF92
+	mem[R3++] = Y0; // FF92
+	mem[R3++] = X0; // 006E
+	
+	// 6FC: tst B
+	// 6FD: bseq >*-$88
+	if (B == 0)
+		call_675();
+	
+	// 
+}
+
+void call_702()
+{
+	// X: 0020 0020
+	// Y: 0000 0000
+	// A: 00 0020 0000
+	// B: 00 0055 0000
+	// R0-3: B3CD B4DF 0240 0175
+	// 702: move X0,X:>$173
+	// 704: move X:>$2FA,B
+	// 706: inc24 B B,A
+	mem[0x173] = X0; // mem[173] = 0020
+	A = B = mem[0x2FA]; // B = 00 0055 0000
+	B++;
+	
+}
+
+void func_8034()
+{	// 8034: move #>$FFC4,R0
+	// 8036: move #>$8000,R3
+	// 8038: bfset #$8,X:(R0)
+	HCR |= HF2;
+	
+	// Initial register contents:
+	// 1A: FFE3 = 0020
+	// 19: FFDF = FF00
+	// 18: FFDE = 0042
+	// 17: FFC4 = 000C
+	// 16: FFC3 = 0FFF
+	// 15: FFC1 = 0000
+	// 14: FFC0 = 0001
+	// 13: F000 = FEE0
+	// 12: F001 = FF3F
+	// 11: F002 = 0180
+	// 10: F003 = FF70
+	// 0F: F004 = FF80
+	// 0E: F005 = 0100
+	// 0D: F006 = 0000
+	// 0C: F007 = 0010
+	// 0B: 0001 = 0010
+	// 0A: F008 = FF40
+	// 09: 0002 = FF40
+	// 08: F009 = 00C0
+	// 07: 0003 = 00C0
+	// 06: E002 = FF6C
+	// 05: E000 = 0000
+	// 04: 0000 = 0000
+	// 03: 0004 = 49E7
+	// 02: 0005 = 49E7
+	// 01: 0006 = B619
+	// 00: FFC4 = 3E1C
+	
+	// 803A: do #<$1a,*+$5
+	for (u16 lc = 0x1A: lc > 0; lc--)
+	{	// 803C: move P:(R3)+,X1
+		// 803D: move P:(R3)+,A
+		// 803E: move X1,X:(A1)
+		u16 X1 = pmem[R3++];
+		u16 A1 = pmem[R3++];
+		mem[A1] = X1;
+	}
+	
+	// 803F: move #>$1000,X0
+	u16 X0 = 0x1000;
+	
+	// 8041: bfset #$2,X:<<$FFE3
+	// 8043: bfclr #$100,X:<<$FFE3
+	PCD |= (1 << 1); // Switch to Map B
+	PCD &= ~(1 << 8);
+	
+	// 8045: move #>$6000,R3
+	// 8047: rep X0
+	// 8048: move A,X:(R3)+
+	memset16(R3, A, X0); // Fills 0x6000 Bank 0 with 0x0006
+	
+	// 8049: bfchg #$80,X:<<$FFE3
+	// 804B: move #>$6000,R3
+	// 804D: rep X0
+	// 804E: move A,X:(R3)+
+	memset16(R3, A, X0); // Fills 0x6000 Bank 2 with 0x0006
+	
+	// 804F: bfset #$100,X:<<$FFE3
+	// 8051: move #>$6000,R3
+	// 8053: rep X0
+	// 8054: move A,X:(R3)+
+	memset16(R3, A, X0); // Fills 0x6000 Bank 3 with 0x0006
+	
+	// 8055: bfchg #$80,X:<<$FFE3
+	// 8057: move #>$6000,R3
+	// 8059: rep X0
+	// 805A: move A,X:(R3)+
+	memset16(R3, A, X0); // Fills 0x6000 Bank 1 with 0x0006
+	
+	// 805B: bfclr #$180,X:<<$FFE3
+	// 805D: bfclr #$2,X:<<$FFE3
+	PCD &= ~((1 << 7) | (1 << 8));
+	PCD &= ~(1 << 1); // Switch to Map A
+	
+	// 805F: andi #$FC,MR
+	MR &= 0xFC; // Enable IPL0..3
+	
+	// 8060: bfclr #$8,X:(R0)
+	HCR &= ~HF2;
+}
+
+void func_8064()
+{	// R0: FFC4
+	// X: B619 1400
+	// Y: 0000 0000
+	// A: 00 0006 0000
+	// B: 00 0000 0000
+	
+	// 8064: bfset #$8,X:(R0)
+	HCR |= HF2;
+	
+	// 8066: move #>$C000,R3
+	u16 R3 = 0xC000;
+	
+	// 8068: tst2 Y0
+	// 8069: bpl <*+$4
+	if (Y0 < 0)
+	{	// 806A: rep X0
+		// 806B: move X:(R3)+,P:(R2)+
+		for (u16 lc = X0; lc > 0; lc--)
+			mem[R3++] = pmem[R2++];
+		
+		// 806C: bra <*+$14
+	}
+	else
+	{	// 806D: movep X:<<$FFE3,A
+		// 806E: move A1,B
+		u16 A = PCD;
+		u16 B = A;
+		
+		// 806F: move #>$FFE3,Y1
+		// 8071: and Y1,B
+		// 8072: or Y0,B
+		u16 Y1 = 0xFFE3;
+		B &= 0xFFE3;
+		B |= Y0;
+		
+		// 8073: movep B,X:<<$FFE3
+		PCD = B;
+		
+		// Transfers:
+		// Just before legal screen:
+		// - 1400 words to 4C00
+		// - 0F00 words to 2C00
+		
+		// 8074: do X0,*+$4
+		for (u16 lc = X0; lc > 0; lc--)
+		{	// 8076: move X:(R3)+,X1
+			// 8077: move X1,X:(R2)+
+			mem[R2++] = mem[R3++];
+		}
+		
+		// 8078: move #>$DFFF,R0
+		// 807A: move #>$4949,X0
+		// 807C: move X0,X:(R0)
+		mem[0xDFFF] = 0x4949;
+		
+		// 807D: move #>$FFC4,R0
+		// 807F: movep A,X:<<$FFE3
+		// 8080: bfclr #$8,X:(R0)
+		PCD = 0x20;
+		HFCR &= ~HF2;
+	}
+}
+
+// Entry point for host command 0x9C/0x1C, flag which model slots are occupied
+void func_80BB()
+{	// R0 = FFC4, R1 = 7F01, R2 = A1E0, R3 = C1E0
+	// 80BB: bfset #$8,X:(R0)
+	HCR |= HF2;
+	
+	// 80BD: move #>$8,R1
+	// 80BF: move R1,R2
+	// 80C0: move #>$FFFF,A
+	// 80C2: rep #$40
+	// 80C3: Cmove A,X:(R1)+
+	u16 R1 = 8;
+	u16 R2 = 8;
+	for(u16 rep = 0x40; rep > 0; rep--)
+		mem[R1++] = 0xFFFF;
+
+	// 80C4: move #>$FFFC,A
+	// 80C6: move #<+$4,X1
+	// 80C7: move #>$C000,R1
+	A = 0xFFFC;
+	X1 = 0x0004;
+	R1 = 0xC000;
+	
+	// 80C9: do #<$8,*+$5
+	for (u16 lc = 8; lc > 0; lc--)
+	{	// 80CB: move X:(R1)+,N2
+		u16 N2 = mem[R1++];
+		
+		// 80CC: add X1,A
+		A += X1;
+		
+		// 80CD: move A,X:(R2+N2) ; 3892
+		mem[R2 + N2] = A;
+	}
+
+	80CE: HCR &= ~HF2;
+}
